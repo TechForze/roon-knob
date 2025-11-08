@@ -20,6 +20,7 @@ void ui_set_status(bool online);
 void ui_set_input_handler(ui_input_cb_t handler);
 void ui_loop_iter(void);
 void ui_set_zone_name(const char *zone_name);
+void ui_set_message(const char *msg);
 
 #ifdef __cplusplus
 }

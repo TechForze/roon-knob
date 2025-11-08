@@ -23,11 +23,14 @@ function createRoutes({ bridge, metrics, logger }) {
 
   router.get('/now_playing', (req, res) => {
     const zoneId = req.query.zone_id;
+    if (!zoneId) {
+      return res.status(400).json({ error: 'zone_id required' });
+    }
     const data = bridge.getNowPlaying(zoneId);
     if (!data) {
       recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, status: 'miss', knob: extractKnob(req) });
       logger?.warn('now_playing miss', { zoneId, ip: req.ip });
-      return res.status(404).json({ error: 'zone not found or no data yet' });
+      return res.status(404).json({ error: 'zone not found' });
     }
     recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, knob: extractKnob(req) });
     logger?.debug('now_playing served', { zoneId, ip: req.ip });

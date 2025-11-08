@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -19,6 +20,7 @@ static bool net_ok = false;
 static int net_volume_step = 2;
 static volatile bool run_threads = true;
 static char zone_label[64] = "Loading zone";
+static bool zone_resolved = false;
 
 struct now_playing {
     char line1[MAX_LINE];
@@ -50,11 +52,23 @@ static void curl_string_copy(const char *data, const char *key, char *out, size_
     out[copy_len] = '\0';
 }
 
-static void refresh_zone_label(void);
+static bool refresh_zone_label(void);
+static void log_msg(const char *fmt, ...);
 
-static void fetch_now_playing(struct now_playing *state) {
+static bool fetch_now_playing(struct now_playing *state) {
+    if (!zone_resolved) {
+        refresh_zone_label();
+        if (!zone_resolved) {
+            log_msg("cannot resolve zone; skipping poll");
+            return false;
+        }
+    }
     if (zone_id[0] == '\0') {
         refresh_zone_label();
+        if (zone_id[0] == '\0') {
+            log_msg("zone_id still empty after refresh");
+            return false;
+        }
     }
     char url[512];
     snprintf(url, sizeof(url), "%s/now_playing?zone_id=%s", bridge_base, zone_id);
@@ -63,8 +77,16 @@ static void fetch_now_playing(struct now_playing *state) {
     int ret = http_get(url, &resp, &resp_len);
     if (ret != 0 || !resp) {
         net_ok = false;
+        log_msg("now_playing request failed (ret=%d)", ret);
         http_free(resp);
-        return;
+        return false;
+    }
+    if (resp_len == 0 || strstr(resp, "\"error\"")) {
+        net_ok = false;
+        zone_resolved = false;
+        log_msg("now_playing returned error or empty payload: %.*s", (int)resp_len, resp ? resp : "");
+        http_free(resp);
+        return false;
     }
 
     curl_string_copy(resp, "\"line1\"", state->line1, sizeof(state->line1));
@@ -97,6 +119,7 @@ static void fetch_now_playing(struct now_playing *state) {
 
     net_ok = true;
     http_free(resp);
+    return true;
 }
 
 static void send_control_json(const char *json) {
@@ -105,7 +128,7 @@ static void send_control_json(const char *json) {
     char *resp = NULL;
     size_t resp_len = 0;
     if (http_post_json(url, json, &resp, &resp_len) != 0) {
-        fprintf(stderr, "[pc_sim] control failed %s\n", json);
+        log_msg("control failed payload=%s", json);
     }
     http_free(resp);
 }
@@ -141,15 +164,21 @@ static void *poll_thread(void *arg) {
     struct now_playing state;
     default_now_playing(&state);
     while (run_threads) {
-        fetch_now_playing(&state);
-        ui_update(state.line1, state.line2, state.is_playing, state.volume);
-        ui_set_status(net_ok);
+        bool ok = fetch_now_playing(&state);
+        if (ok) {
+            ui_update(state.line1, state.line2, state.is_playing, state.volume);
+            ui_set_status(true);
+            ui_set_message("Connected");
+        } else {
+            ui_set_status(false);
+            ui_set_message("Waiting for data...");
+        }
         sleep(POLL_INTERVAL_SECONDS);
     }
     return NULL;
 }
 
-static void refresh_zone_label(void) {
+static bool refresh_zone_label(void) {
     char url[512];
     snprintf(url, sizeof(url), "%s/zones", bridge_base);
     char *resp = NULL;
@@ -157,7 +186,8 @@ static void refresh_zone_label(void) {
     if (http_get(url, &resp, &resp_len) != 0 || !resp) {
         ui_set_zone_name(zone_label);
         http_free(resp);
-        return;
+        zone_resolved = false;
+        return false;
     }
     const char *cursor = resp;
     char first_id[64] = "";
@@ -205,21 +235,26 @@ static void refresh_zone_label(void) {
             snprintf(zone_label, sizeof(zone_label), "%s", current_name);
             ui_set_zone_name(zone_label);
             found = true;
+            zone_resolved = true;
             break;
         }
-        cursor = name_end;
+        cursor = name_end + 1;
     }
 
     if (!found && first_id[0]) {
         snprintf(zone_id, sizeof(zone_id), "%s", first_id);
         snprintf(zone_label, sizeof(zone_label), "%s", first_name);
         ui_set_zone_name(zone_label);
+        zone_resolved = true;
+        log_msg("zone fallback -> id=%s name=%s", zone_id, zone_label);
     } else if (!found) {
         ui_set_zone_name(zone_label);
+        zone_resolved = false;
+        log_msg("zones fetch did not resolve any zone");
     }
     http_free(resp);
+    return zone_resolved;
 }
-
 int main(int argc, char **argv) {
     const char *env_base = getenv("ROON_BRIDGE_BASE");
     if (env_base && env_base[0]) {
@@ -228,13 +263,9 @@ int main(int argc, char **argv) {
     const char *env_zone = getenv("ZONE_ID");
     if (env_zone && env_zone[0]) {
         snprintf(zone_id, sizeof(zone_id), "%s", env_zone);
+        snprintf(zone_label, sizeof(zone_label), "%s", env_zone);
     } else {
-        snprintf(zone_id, sizeof(zone_id), "%s", "Bedroom");
-    }
-
-    if (zone_id[0]) {
-        snprintf(zone_label, sizeof(zone_label), "%s", zone_id);
-    } else {
+        zone_id[0] = '\0';
         snprintf(zone_label, sizeof(zone_label), "%s", "Loading zone");
     }
     ui_init();
@@ -249,4 +280,13 @@ int main(int argc, char **argv) {
         ui_loop_iter();
         usleep(5000);
     }
+}
+
+static void log_msg(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "[pc_sim] ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
 }

@@ -66,21 +66,42 @@
         <p>Zones tracked: ${bridge.zone_count}</p>
         <p class="muted">Uptime: ${ago(Date.now() - metrics.uptimeMs)}</p>
         <p class="muted">mDNS: ${metrics.mdns ? `${metrics.mdns.name} → ${metrics.mdns.base}` : 'not published'}</p>
+        <p class="muted">JSON: <a href="/admin/status.json" target="_blank">/admin/status.json</a></p>
       `;
 
-      const rows = bridge.zones.map((zone) => `
-        <tr>
-          <td>${zone.zone_name}</td>
-          <td>${zone.zone_id}</td>
-        </tr>
-      `).join('');
+      const nowByZone = {};
+      (bridge.now_playing || []).forEach((np) => {
+        nowByZone[np.zone_id] = np;
+      });
+      const zoneRows = (bridge.zones || []).map((zone) => {
+        const np = nowByZone[zone.zone_id] || {};
+        const status = np.line1 ? `${np.line1}${np.line2 ? ' — ' + np.line2 : ''}` : 'No data';
+        const volStep = np.volume_step || 2;
+        const volDisplay = typeof np.volume === 'number' ? np.volume : '—';
+        const playingLabel = np.is_playing ? 'Pause' : 'Play';
+        return `
+          <tr data-zone="${zone.zone_id}">
+            <td>${zone.zone_name}</td>
+            <td>${status}</td>
+            <td>${volDisplay}</td>
+            <td class="zone-controls">
+              <button class="ctrl ctrl-vol" data-zone="${zone.zone_id}" data-action="vol_rel" data-step="${-volStep}">-</button>
+              <button class="ctrl ctrl-play" data-zone="${zone.zone_id}" data-action="play_pause">${playingLabel}</button>
+              <button class="ctrl ctrl-vol" data-zone="${zone.zone_id}" data-action="vol_rel" data-step="${volStep}">+</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
       zonesEl.innerHTML = `
         <h2>Zones</h2>
         <table>
-          <thead><tr><th>Name</th><th>Zone ID</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="2" class="muted">No zones yet</td></tr>'}</tbody>
+          <thead>
+            <tr><th>Name</th><th>Now Playing</th><th>Vol</th><th>Controls</th></tr>
+          </thead>
+          <tbody>${zoneRows || '<tr><td colspan="4" class="muted">No zones yet</td></tr>'}</tbody>
         </table>
       `;
+      attachZoneControls();
 
       const knobRows = (metrics.knobs || []).map((knob) => `
         <tr>
@@ -132,6 +153,25 @@
 
     refresh();
     setInterval(refresh, 4000);
+
+    function attachZoneControls() {
+      zonesEl.querySelectorAll('button.ctrl').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const zone = btn.dataset.zone;
+          const action = btn.dataset.action;
+          const step = Number(btn.dataset.step || 0);
+          const payload = { zone_id: zone, action };
+          if (action === 'vol_rel') {
+            payload.value = step;
+          }
+          fetch('/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }).catch((err) => console.error('control failed', err));
+        });
+      });
+    }
   </script>
 </body>
 </html>

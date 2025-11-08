@@ -33,6 +33,7 @@ static lv_obj_t *s_status_dot;
 static lv_obj_t *s_volume_bar;
 static lv_obj_t *s_play_icon;
 static lv_obj_t *s_zone_label;
+static lv_obj_t *s_message_label;
 
 static pthread_mutex_t s_state_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct ui_state s_pending = {
@@ -148,6 +149,13 @@ static void build_layout(void) {
     lv_obj_set_style_text_color(s_zone_label, lv_color_hex(0xaeb6d5), 0);
     lv_obj_align(s_zone_label, LV_ALIGN_TOP_LEFT, 16, 16);
 
+    s_message_label = lv_label_create(screen);
+    lv_obj_remove_style_all(s_message_label);
+    lv_obj_set_style_text_color(s_message_label, lv_color_hex(0xaeb6d5), 0);
+    lv_obj_set_style_text_font(s_message_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(s_message_label, LV_ALIGN_TOP_MID, 0, 8);
+    lv_label_set_text(s_message_label, "Starting...");
+
     s_label_line1 = lv_label_create(dial);
     lv_obj_set_width(s_label_line1, SAFE_SIZE - 32);
     lv_obj_set_style_text_color(s_label_line1, lv_color_hex(0xffffff), 0);
@@ -198,6 +206,11 @@ void ui_set_zone_name(const char *zone_name) {
     if (!zone_name || !s_zone_label) return;
     lv_label_set_text(s_zone_label, zone_name);
     snprintf(s_zone_name, sizeof(s_zone_name), "%s", zone_name);
+}
+
+void ui_set_message(const char *msg) {
+    if (!msg || !s_message_label) return;
+    lv_label_set_text(s_message_label, msg);
 }
 
 static void keyboard_event_cb(lv_event_t *e) {

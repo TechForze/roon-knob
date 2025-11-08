@@ -7,6 +7,15 @@ const MAX_RELATIVE_STEP_PER_CALL = 25;
 const MAX_VOLUME = 100;
 const MIN_VOLUME = 0;
 
+const fallbackSummary = (zone) => ({
+  line1: 'Idle',
+  line2: zone?.now_playing?.three_line?.line2 || zone?.display_name || '',
+  is_playing: false,
+  volume: zone?.outputs?.[0]?.volume?.value ?? null,
+  volume_step: zone?.outputs?.[0]?.volume?.step ?? 2,
+  zone_id: zone?.zone_id,
+});
+
 function createRoonBridge(opts = {}) {
   const log = opts.logger || console;
   const state = {
@@ -114,7 +123,13 @@ function createRoonBridge(opts = {}) {
 
   function getNowPlaying(zone_id) {
     if (!zone_id) return null;
-    return state.nowPlayingByZone.get(zone_id) || null;
+    const cached = state.nowPlayingByZone.get(zone_id);
+    if (cached) return cached;
+    const zone = state.zones.find((z) => z.zone_id === zone_id);
+    if (!zone) return null;
+    const fallback = fallbackSummary(zone);
+    state.nowPlayingByZone.set(zone_id, fallback);
+    return fallback;
   }
 
   async function control(zone_id, action, value) {

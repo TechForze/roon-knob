@@ -1,0 +1,14 @@
+# Build artifacts
+build/
+cmake-build-*
+
+# IDF
+sdkconfig
+sdkconfig.old
+idf_*.log
+
+# Node modules
+roon-extension/node_modules/
+
+# Beads db
+.beads/

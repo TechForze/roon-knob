@@ -136,6 +136,11 @@ Good Habits
 	•	❌ No Markdown TODOs.
 	•	❌ No external trackers.
 
+☑ Beads Troubleshooting
+	•	When `bd sync` says JSONL is newer than the database, run `bd import` (or `bd import -i .beads/issues.jsonl`) before another sync so the files align. Don’t manually delete `.beads/` entries unless you know what you’re doing (always regenerate via `bd init` if needed).
+	•	If the database disappears or the snapshot becomes invalid, run `bd init --quiet` to recreate it, then `bd import` before the next `bd sync`.
+	•	Errors about stale snapshots usually mean git pulled new JSONL; rerun `bd import` (or export from the JSONL you just pulled) to reconcile before resyncing.
+
 ⸻
 
 End of Session
@@ -147,5 +152,4 @@ git pull --rebase
 git push
 
 That ensures .beads/issues.jsonl is consistent with git and everyone else’s view of the project.
-
 

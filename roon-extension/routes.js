@@ -12,11 +12,12 @@ function extractKnob(req) {
   return { id, version };
 }
 
-function createRoutes({ bridge, metrics }) {
+function createRoutes({ bridge, metrics, logger }) {
   const router = express.Router();
 
   router.get('/zones', (req, res) => {
     recordEvent(metrics, 'zones', req, { knob: extractKnob(req) });
+    logger?.debug('Zones requested', { ip: req.ip });
     res.json(bridge.getZones());
   });
 
@@ -25,22 +26,27 @@ function createRoutes({ bridge, metrics }) {
     const data = bridge.getNowPlaying(zoneId);
     if (!data) {
       recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, status: 'miss', knob: extractKnob(req) });
+      logger?.warn('now_playing miss', { zoneId, ip: req.ip });
       return res.status(404).json({ error: 'zone not found or no data yet' });
     }
     recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, knob: extractKnob(req) });
+    logger?.debug('now_playing served', { zoneId, ip: req.ip });
     res.json(data);
   });
 
   router.post('/control', async (req, res) => {
     const { zone_id, action, value } = req.body || {};
     if (!zone_id || !action) {
+      logger?.warn('control missing params', { zone_id, action, ip: req.ip });
       return res.status(400).json({ error: 'zone_id and action required' });
     }
     try {
+      logger?.info('control', { zone_id, action, value, ip: req.ip });
       await bridge.control(zone_id, action, value);
       recordEvent(metrics, 'control', req, { zone_id, action, value, knob: extractKnob(req) });
       res.json({ status: 'ok' });
     } catch (error) {
+      logger?.error('control failed', { zone_id, action, value, ip: req.ip, error });
       recordEvent(metrics, 'control_error', req, { zone_id, action, value, knob: extractKnob(req) });
       res.status(500).json({ error: error.message || 'control failed' });
     }

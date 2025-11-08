@@ -59,9 +59,10 @@
     function render({ bridge, metrics }) {
       const connected = bridge.connected;
       const pill = `<span class="pill ${connected ? 'online' : 'offline'}">${connected ? 'Online' : 'Offline'}</span>`;
+      const coreText = bridge.core ? `${bridge.core.name} (${bridge.core.version})` : 'Not paired – open Roon > Settings > Extensions and enable "Roon Knob Bridge"';
       statusEl.innerHTML = `
         <h2>Status ${pill}</h2>
-        <p>Core: ${bridge.core ? `${bridge.core.name} (${bridge.core.version})` : 'Not paired'} </p>
+        <p>Core: ${coreText}</p>
         <p>Zones tracked: ${bridge.zone_count}</p>
         <p class="muted">Uptime: ${ago(Date.now() - metrics.uptimeMs)}</p>
         <p class="muted">mDNS: ${metrics.mdns ? `${metrics.mdns.name} → ${metrics.mdns.base}` : 'not published'}</p>

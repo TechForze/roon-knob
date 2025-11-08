@@ -9,6 +9,7 @@ idf_*.log
 
 # Node modules
 roon-extension/node_modules/
+roon-extension/config.json
 
 # Beads db
 .beads/

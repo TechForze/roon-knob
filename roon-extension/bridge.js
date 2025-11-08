@@ -8,6 +8,7 @@ const MAX_VOLUME = 100;
 const MIN_VOLUME = 0;
 
 function createRoonBridge(opts = {}) {
+  const log = opts.logger || console;
   const state = {
     core: null,
     coreInfo: null,
@@ -26,6 +27,7 @@ function createRoonBridge(opts = {}) {
     email: 'support@example.com',
     website: 'https://github.com/muness/roon-knob',
     core_paired(core) {
+      log.info('Roon core paired', { id: core.core_id, name: core.display_name });
       state.core = core;
       state.transport = core.services.RoonApiTransport;
       state.coreInfo = {
@@ -36,6 +38,7 @@ function createRoonBridge(opts = {}) {
       subscribe(core);
     },
     core_unpaired() {
+      log.warn('Roon core disconnected');
       state.core = null;
       state.transport = null;
       state.zones = [];
@@ -54,11 +57,14 @@ function createRoonBridge(opts = {}) {
   function subscribe(core) {
     const transport = core.services.RoonApiTransport;
     if (!transport) {
-      svc_status.set_status('Transport service unavailable', true);
+      const msg = 'Transport service unavailable';
+      log.error(msg);
+      svc_status.set_status(msg, true);
       return;
     }
 
     transport.subscribe_zones((msg, data) => {
+      log.debug('transport event', { msg, zones: data?.zones?.length });
       if (msg === 'Subscribed' && data?.zones) {
         state.zones = data.zones;
         data.zones.forEach(updateZone);
@@ -80,6 +86,7 @@ function createRoonBridge(opts = {}) {
 
   function updateZone(zone) {
     if (!zone || !zone.zone_id) return;
+    log.debug('update zone', { zone: zone.zone_id, state: zone.state });
     const summary = {
       line1: zone.now_playing?.three_line?.line1 || zone.display_name || 'Unknown zone',
       line2: zone.now_playing?.three_line?.line2 || '',
@@ -119,12 +126,15 @@ function createRoonBridge(opts = {}) {
 
     switch (action) {
       case 'play_pause':
+        log.debug('control play_pause', { zone_id });
         await callTransport('play_pause', { control: 'toggle', zone_or_output_id: zone_id });
         break;
       case 'vol_rel':
+        log.debug('control vol_rel', { zone_id, value: deltaValue(value) });
         await enqueueRelativeVolume(output.output_id, Number(value) || 0);
         break;
       case 'vol_abs':
+        log.debug('control vol_abs', { zone_id, value });
         await callTransport('change_volume', {
           volume_type: 'absolute',
           volume: clampVolume(Number(value)),
@@ -132,8 +142,14 @@ function createRoonBridge(opts = {}) {
         });
         break;
       default:
+        log.warn('Unknown control action', { action });
         throw new Error('Unknown action');
     }
+  }
+
+  function deltaValue(value) {
+    const num = Number(value);
+    return Number.isNaN(num) ? 0 : num;
   }
 
   async function enqueueRelativeVolume(output_id, delta) {

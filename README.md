@@ -31,7 +31,7 @@ roon-knob/
 ## Getting Started
 
 1. Install the simulator dependencies (`cmake`, `ninja`, `sdl2`, `curl`) with `./scripts/setup_mac.sh`.
-2. Build and run the PC simulator: `./scripts/run_pc.sh` (expects a bridge at `http://127.0.0.1:8088` by default). The simulator now uses LVGL 9 to render a 240×240 round UI, so it requires SDL2 headers/libs and honors `ROON_BRIDGE_BASE`/`ZONE_ID` like the device.
+2. Build and run the PC simulator: `./scripts/run_pc.sh` (expects a bridge at `http://127.0.0.1:8088` by default). The simulator now uses LVGL 9 to render a 240×240 round UI (SDL2 backed): ←/→ change volume (POST `/control`), space toggles play/pause, and the status dot reflects HTTP health. Use `ROON_BRIDGE_BASE`/`ZONE_ID` to target other bridges.
 3. Flash the ESP32-S3 target: set `IDF_PATH` and run `./scripts/build_flash_idf.sh /dev/tty.usbmodemXYZ`.
 4. Launch the bridge: `cd roon-extension && npm install && npm start`.
 

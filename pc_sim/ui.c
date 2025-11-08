@@ -7,8 +7,9 @@
 #include <unistd.h>
 
 #include "lvgl.h"
-#include "lvgl/src/drivers/sdl/lv_sdl_window.h"
-#include "lvgl/src/drivers/sdl/lv_sdl_mouse.h"
+#include "src/drivers/sdl/lv_sdl_window.h"
+#include "src/drivers/sdl/lv_sdl_mouse.h"
+#include "src/drivers/sdl/lv_sdl_keyboard.h"
 
 #include "ui.h"
 
@@ -40,12 +41,16 @@ static struct ui_state s_pending = {
 };
 static bool s_dirty = true;
 static bool s_running = true;
+static lv_indev_t *s_keyboard;
+static lv_group_t *s_key_group;
+static ui_input_cb_t s_input_cb;
 
 static void apply_state(const struct ui_state *state);
 static void *lvgl_thread(void *arg);
 static void build_layout(void);
 static void poll_pending(lv_timer_t *timer);
 static void set_status_dot(bool online);
+static void keyboard_event_cb(lv_event_t *e);
 
 void ui_init(void) {
     lv_init();
@@ -56,6 +61,17 @@ void ui_init(void) {
 
     build_layout();
     lv_timer_create(poll_pending, 60, NULL);
+
+    s_keyboard = lv_sdl_keyboard_create();
+    if(s_keyboard) {
+        lv_obj_t *screen = lv_screen_active();
+        s_key_group = lv_group_create();
+        lv_group_add_obj(s_key_group, screen);
+        lv_group_focus_obj(screen);
+        lv_indev_set_group(s_keyboard, s_key_group);
+        lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+        lv_obj_add_event_cb(screen, keyboard_event_cb, LV_EVENT_KEY, NULL);
+    }
 
     pthread_create(&s_lv_thread, NULL, lvgl_thread, NULL);
 }
@@ -170,4 +186,27 @@ static void apply_state(const struct ui_state *state) {
 static void set_status_dot(bool online) {
     lv_color_t color = online ? lv_color_hex(0x41db64) : lv_color_hex(0xdb4154);
     lv_obj_set_style_bg_color(s_status_dot, color, 0);
+}
+
+void ui_set_input_handler(ui_input_cb_t handler) {
+    s_input_cb = handler;
+}
+
+static void keyboard_event_cb(lv_event_t *e) {
+    if(!s_input_cb) return;
+    uint32_t key = lv_event_get_key(e);
+    switch(key) {
+        case LV_KEY_LEFT:
+            s_input_cb(UI_INPUT_VOL_DOWN);
+            break;
+        case LV_KEY_RIGHT:
+            s_input_cb(UI_INPUT_VOL_UP);
+            break;
+        case LV_KEY_ENTER:
+        case ' ':
+            s_input_cb(UI_INPUT_PLAY_PAUSE);
+            break;
+        default:
+            break;
+    }
 }

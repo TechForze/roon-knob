@@ -58,6 +58,8 @@ static struct ui_state s_pending = {
     .length = 0,
 };
 static bool s_dirty = true;
+static char s_pending_message[128] = "";
+static bool s_message_dirty = false;
 static lv_indev_t *s_keyboard;
 static lv_group_t *s_key_group;
 static ui_input_cb_t s_input_cb;
@@ -97,7 +99,8 @@ void ui_init(void) {
     lv_label_set_text(s_zone_label, s_zone_name);
     lv_label_set_text(s_label_line1, s_pending.line1);
 
-    show_message_overlay("Starting...");
+    // Set initial message via the safe mechanism
+    ui_set_message("Starting...");
 }
 
 void ui_update(const char *line1, const char *line2, bool playing, int volume, int seek_position, int length) {
@@ -129,6 +132,8 @@ static void poll_pending(lv_timer_t *timer) {
     (void)timer;
     struct ui_state local;
     bool update = false;
+    char message[128] = "";
+    bool show_message = false;
 
     os_mutex_lock(&s_state_lock);
     if (s_dirty) {
@@ -136,10 +141,18 @@ static void poll_pending(lv_timer_t *timer) {
         s_dirty = false;
         update = true;
     }
+    if (s_message_dirty) {
+        snprintf(message, sizeof(message), "%s", s_pending_message);
+        s_message_dirty = false;
+        show_message = true;
+    }
     os_mutex_unlock(&s_state_lock);
 
     if (update) {
         apply_state(&local);
+    }
+    if (show_message) {
+        show_message_overlay(message);
     }
 }
 
@@ -242,7 +255,10 @@ void ui_set_zone_name(const char *zone_name) {
 
 void ui_set_message(const char *msg) {
     if (!msg) return;
-    show_message_overlay(msg);
+    os_mutex_lock(&s_state_lock);
+    snprintf(s_pending_message, sizeof(s_pending_message), "%s", msg);
+    s_message_dirty = true;
+    os_mutex_unlock(&s_state_lock);
 }
 
 static void keyboard_event_cb(lv_event_t *e) {

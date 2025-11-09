@@ -209,8 +209,6 @@ static void handle_input(ui_input_event_t ev) {
 
                     // Show loading message and trigger immediate poll
                     ui_set_message("Loading zone...");
-
-                    // Trigger immediate poll
                     trigger_poll = true;
                 }
                 ui_hide_zone_picker();

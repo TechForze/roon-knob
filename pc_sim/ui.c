@@ -31,7 +31,6 @@ static lv_obj_t *s_label_line1;
 static lv_obj_t *s_label_line2;
 static lv_obj_t *s_status_dot;
 static lv_obj_t *s_volume_bar;
-static lv_obj_t *s_play_icon;
 static lv_obj_t *s_zone_label;
 static lv_obj_t *s_message_label;
 static lv_obj_t *s_play_button;
@@ -186,11 +185,6 @@ static void build_layout(void) {
     lv_obj_align(s_volume_bar, LV_ALIGN_BOTTOM_MID, 0, -32);
     lv_bar_set_range(s_volume_bar, 0, 100);
 
-    s_play_icon = lv_label_create(dial);
-    lv_obj_set_style_text_color(s_play_icon, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(s_play_icon, &lv_font_montserrat_28, 0);
-    lv_obj_align(s_play_icon, LV_ALIGN_BOTTOM_LEFT, 24, -28);
-
     s_vol_down_button = lv_btn_create(dial);
     lv_obj_set_size(s_vol_down_button, 40, 40);
     lv_obj_align(s_vol_down_button, LV_ALIGN_BOTTOM_LEFT, 36, -70);
@@ -222,9 +216,8 @@ static void apply_state(const struct ui_state *state) {
     lv_label_set_text(s_label_line1, state->line1);
     lv_label_set_text(s_label_line2, state->line2);
     lv_bar_set_value(s_volume_bar, state->volume, LV_ANIM_OFF);
-    const char *icon = state->playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY;
-    lv_label_set_text(s_play_icon, icon);
     if (s_play_button_label) {
+        const char *icon = state->playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY;
         lv_label_set_text(s_play_button_label, icon);
     }
     set_status_dot(state->online);

@@ -12,6 +12,8 @@ typedef enum {
     UI_INPUT_VOL_UP = 1,
     UI_INPUT_PLAY_PAUSE = 2,
     UI_INPUT_MENU = 3,
+    UI_INPUT_NEXT_TRACK = 4,
+    UI_INPUT_PREV_TRACK = 5,
 } ui_input_event_t;
 
 typedef void (*ui_input_cb_t)(ui_input_event_t event);
@@ -29,6 +31,7 @@ void ui_hide_zone_picker(void);
 bool ui_is_zone_picker_visible(void);
 int ui_zone_picker_get_selected(void);
 void ui_zone_picker_scroll(int delta);
+void ui_set_artwork(const char *image_key);  // Set album artwork (placeholder for now)
 
 #ifdef __cplusplus
 }

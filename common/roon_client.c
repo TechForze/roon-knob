@@ -29,6 +29,7 @@ struct now_playing_state {
     int volume_step;
     int seek_position;
     int length;
+    char image_key[128];  // For tracking album artwork changes
 };
 
 struct zone_entry {
@@ -85,6 +86,15 @@ static void ui_update_cb(void *arg) {
         return;
     }
     ui_update(state->line1, state->line2, state->is_playing, state->volume, state->seek_position, state->length);
+
+    // Update artwork if image_key changed
+    static char last_image_key[128] = "";
+    if (strcmp(state->image_key, last_image_key) != 0) {
+        ui_set_artwork(state->image_key);
+        strncpy(last_image_key, state->image_key, sizeof(last_image_key) - 1);
+        last_image_key[sizeof(last_image_key) - 1] = '\0';
+    }
+
     free(state);
 }
 
@@ -155,6 +165,7 @@ static void default_now_playing(struct now_playing_state *state) {
     state->volume_step = 0;
     state->seek_position = 0;
     state->length = 0;
+    state->image_key[0] = '\0';
 }
 
 static void post_ui_update(const struct now_playing_state *state) {
@@ -323,6 +334,14 @@ static bool fetch_now_playing(struct now_playing_state *state) {
         if (colon) {
             state->length = atoi(colon + 1);
         }
+    }
+
+    // Parse image_key for album artwork
+    const char *image_key = strstr(resp, "\"image_key\"");
+    if (image_key) {
+        extract_json_string(image_key, "\"image_key\"", state->image_key, sizeof(state->image_key));
+    } else {
+        state->image_key[0] = '\0';  // No artwork available
     }
 
     parse_zones_from_response(resp);
@@ -620,6 +639,22 @@ void roon_client_handle_input(ui_input_event_t event) {
         unlock_state();
         if (!send_control_json(body)) {
             post_ui_message("Play/pause failed");
+        }
+        break;
+    case UI_INPUT_NEXT_TRACK:
+        lock_state();
+        snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"next\"}", s_state.cfg.zone_id);
+        unlock_state();
+        if (!send_control_json(body)) {
+            post_ui_message("Next track failed");
+        }
+        break;
+    case UI_INPUT_PREV_TRACK:
+        lock_state();
+        snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"prev\"}", s_state.cfg.zone_id);
+        unlock_state();
+        if (!send_control_json(body)) {
+            post_ui_message("Previous track failed");
         }
         break;
     default:

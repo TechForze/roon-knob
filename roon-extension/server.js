@@ -2,11 +2,20 @@ const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
 const path = require('path');
+const { execSync } = require('child_process');
 const { advertise } = require('./mdns');
 const { createRoutes } = require('./routes');
 const { createRoonBridge } = require('./bridge');
 const { createMetricsTracker } = require('./metrics');
 const { createLogger } = require('./logger');
+
+function getGitSha() {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8', cwd: __dirname }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 function startServer() {
   const PORT = parseInt(process.env.PORT || '8088', 10);

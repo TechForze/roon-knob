@@ -44,6 +44,9 @@ static lv_obj_t *s_status_dot;
 static lv_obj_t *s_volume_bar;
 static lv_obj_t *s_progress_bar;
 static lv_obj_t *s_zone_label;
+static lv_obj_t *s_artwork;  // Album artwork (placeholder for now)
+static lv_obj_t *s_prev_btn;  // Previous track button
+static lv_obj_t *s_next_btn;  // Next track button
 static lv_obj_t *s_message_overlay;
 static lv_obj_t *s_message_label;
 static lv_timer_t *s_message_timer;
@@ -79,9 +82,10 @@ static int s_last_seek_position = 0;
 static bool s_is_playing = false;
 
 // Use larger fonts for better readability on 360x360 display
-static inline const lv_font_t *font_small(void) { return &lv_font_montserrat_16; }
-static inline const lv_font_t *font_normal(void) { return &lv_font_montserrat_20; }
-static inline const lv_font_t *font_large(void) { return &lv_font_montserrat_28; }
+// Note: Larger sizes appear bolder/less aliased on the display
+static inline const lv_font_t *font_small(void) { return &lv_font_montserrat_20; }
+static inline const lv_font_t *font_normal(void) { return &lv_font_montserrat_24; }
+static inline const lv_font_t *font_large(void) { return &lv_font_montserrat_32; }
 
 static void apply_state(const struct ui_state *state);
 static void build_layout(void);
@@ -90,6 +94,8 @@ static void set_status_dot(bool online);
 static void zone_label_event_cb(lv_event_t *e);
 static void zone_button_event_cb(lv_event_t *e);
 static void dial_touch_event_cb(lv_event_t *e);
+static void prev_btn_event_cb(lv_event_t *e);
+static void next_btn_event_cb(lv_event_t *e);
 static void show_message_overlay(const char *msg);
 static void hide_message_overlay(lv_timer_t *timer);
 static void show_volume_overlay(int volume);
@@ -226,6 +232,15 @@ static void build_layout(void) {
     lv_obj_add_flag(s_zone_label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_zone_label, zone_label_event_cb, LV_EVENT_CLICKED, NULL);
 
+    // Artwork placeholder (colored square for now, JPEG rendering to be added)
+    s_artwork = lv_obj_create(dial);
+    lv_obj_remove_style_all(s_artwork);
+    lv_obj_set_size(s_artwork, 120, 120);  // 120x120 placeholder
+    lv_obj_set_style_bg_color(s_artwork, lv_color_hex(0x333333), 0);  // Dark gray placeholder
+    lv_obj_set_style_bg_opa(s_artwork, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(s_artwork, 8, 0);  // Rounded corners
+    lv_obj_align(s_artwork, LV_ALIGN_TOP_MID, 0, 55);  // Below zone label
+
     s_label_line1 = lv_label_create(dial);
     lv_obj_set_width(s_label_line1, SAFE_SIZE - 32);
     lv_obj_set_style_text_color(s_label_line1, lv_color_hex(0xffffff), 0);
@@ -278,6 +293,28 @@ static void build_layout(void) {
     lv_obj_set_style_text_color(s_paused_label, lv_color_hex(0xFFFFFF), 0);  // Bright white for visibility
     lv_obj_set_style_text_font(s_paused_label, font_large(), 0);  // Larger for icon
     lv_obj_align(s_paused_label, LV_ALIGN_BOTTOM_MID, 0, -50);  // Above progress bar
+
+    // Previous track button - left of progress bar, moved inward for circular display
+    s_prev_btn = lv_label_create(dial);
+    lv_obj_remove_style_all(s_prev_btn);
+    lv_label_set_text(s_prev_btn, LV_SYMBOL_PREV);
+    lv_obj_set_style_text_color(s_prev_btn, lv_color_hex(0xaeb6d5), 0);  // Muted color
+    lv_obj_set_style_text_font(s_prev_btn, font_normal(), 0);
+    lv_obj_align(s_prev_btn, LV_ALIGN_BOTTOM_LEFT, 60, -25);  // More inward (was 35, now 60)
+    lv_obj_add_flag(s_prev_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_prev_btn, LV_OBJ_FLAG_CLICK_FOCUSABLE);  // Prevent dial from stealing clicks
+    lv_obj_add_event_cb(s_prev_btn, prev_btn_event_cb, LV_EVENT_PRESSED, NULL);
+
+    // Next track button - right of progress bar, moved inward for circular display
+    s_next_btn = lv_label_create(dial);
+    lv_obj_remove_style_all(s_next_btn);
+    lv_label_set_text(s_next_btn, LV_SYMBOL_NEXT);
+    lv_obj_set_style_text_color(s_next_btn, lv_color_hex(0xaeb6d5), 0);  // Muted color
+    lv_obj_set_style_text_font(s_next_btn, font_normal(), 0);
+    lv_obj_align(s_next_btn, LV_ALIGN_BOTTOM_RIGHT, -60, -25);  // More inward (was -35, now -60)
+    lv_obj_add_flag(s_next_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_next_btn, LV_OBJ_FLAG_CLICK_FOCUSABLE);  // Prevent dial from stealing clicks
+    lv_obj_add_event_cb(s_next_btn, next_btn_event_cb, LV_EVENT_PRESSED, NULL);
 
     apply_state(&s_pending);
 }
@@ -498,8 +535,24 @@ static void dial_touch_event_cb(lv_event_t *e) {
         return;  // Ignore touches in top 1/3
     }
 
-    // Single tap on lower 2/3 of dial triggers play/pause
+    // Exclude bottom area where prev/next buttons are (bottom 80px)
+    // For 360px: 360 - 80 = 280px
+    if (point.y > (SCREEN_SIZE - 80)) {
+        return;  // Ignore touches in bottom area (prev/next buttons)
+    }
+
+    // Single tap in middle area triggers play/pause
     ui_dispatch_input(UI_INPUT_PLAY_PAUSE);
+}
+
+static void prev_btn_event_cb(lv_event_t *e) {
+    (void)e;
+    ui_dispatch_input(UI_INPUT_PREV_TRACK);
+}
+
+static void next_btn_event_cb(lv_event_t *e) {
+    (void)e;
+    ui_dispatch_input(UI_INPUT_NEXT_TRACK);
 }
 
 static void show_message_overlay(const char *msg) {
@@ -588,4 +641,24 @@ static void hide_volume_overlay(lv_timer_t *timer) {
         s_volume_overlay_label = NULL;
     }
     s_volume_overlay_timer = NULL;
+}
+
+void ui_set_artwork(const char *image_key) {
+    if (!image_key || !s_artwork) return;
+
+    // Placeholder: generate a color based on image_key hash
+    // This allows us to see that artwork updates are working
+    // TODO: Fetch and decode JPEG from /now_playing/image endpoint
+    uint32_t hash = 0x333333;  // Default gray
+    if (image_key[0] != '\0') {
+        // Simple hash of the image_key string
+        for (const char *p = image_key; *p; p++) {
+            hash = hash * 31 + (uint32_t)(*p);
+        }
+        // Keep colors reasonably saturated and visible
+        hash = (hash & 0x7F7F7F) | 0x404040;
+    }
+
+    lv_obj_set_style_bg_color(s_artwork, lv_color_hex(hash), 0);
+    ESP_LOGI(UI_TAG, "Artwork updated (placeholder color: 0x%06X) for image_key: %.32s", hash, image_key);
 }

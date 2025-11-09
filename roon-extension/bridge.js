@@ -1,6 +1,7 @@
 const RoonApi = require('node-roon-api');
 const RoonApiStatus = require('node-roon-api-status');
 const RoonApiTransport = require('node-roon-api-transport');
+const RoonApiImage = require('node-roon-api-image');
 
 const RATE_LIMIT_INTERVAL_MS = 100;
 const MAX_RELATIVE_STEP_PER_CALL = 25;
@@ -186,19 +187,27 @@ function createRoonBridge(opts = {}) {
   function getImage(image_key, opts = {}) {
     return new Promise((resolve, reject) => {
       if (!state.core || !state.image || !image_key) {
-        return reject(new Error('image service unavailable'));
+        const reason = !state.core ? 'no core' : !state.image ? 'no image service' : 'no image_key';
+        log.warn('getImage unavailable', { reason, hasCore: !!state.core, hasImage: !!state.image, hasKey: !!image_key });
+        return reject(new Error(`image service unavailable: ${reason}`));
       }
       const options = {};
       if (opts.scale) options.scale = opts.scale;
       if (opts.width) options.width = Number(opts.width);
       if (opts.height) options.height = Number(opts.height);
       if (opts.format) options.format = opts.format; // e.g., 'image/jpeg'
+      log.debug('getImage requesting', { image_key: image_key.substring(0, 32), options });
       try {
         state.image.get_image(image_key, options, (err, contentType, body) => {
-          if (err) return reject(new Error(String(err)));
+          if (err) {
+            log.warn('getImage failed', { error: String(err), image_key: image_key.substring(0, 32) });
+            return reject(new Error(String(err)));
+          }
+          log.debug('getImage success', { contentType, bodyLength: body?.length });
           resolve({ contentType, body });
         });
       } catch (e) {
+        log.error('getImage exception', { error: e.message, image_key: image_key.substring(0, 32) });
         reject(e);
       }
     });
@@ -217,6 +226,15 @@ function createRoonBridge(opts = {}) {
       case 'play_pause':
         log.debug('control play_pause', { zone_id });
         await callTransport('control', zone_id, 'playpause');
+        break;
+      case 'next':
+        log.debug('control next', { zone_id });
+        await callTransport('control', zone_id, 'next');
+        break;
+      case 'previous':
+      case 'prev':
+        log.debug('control previous', { zone_id });
+        await callTransport('control', zone_id, 'previous');
         break;
       case 'vol_rel':
         log.debug('control vol_rel', { zone_id, value: deltaValue(value) });
@@ -293,7 +311,7 @@ function createRoonBridge(opts = {}) {
 
   function start() {
     roon.init_services({
-      required_services: [RoonApiTransport],
+      required_services: [RoonApiTransport, RoonApiImage],
       provided_services: [svc_status],
     });
     roon.start_discovery();
@@ -303,6 +321,7 @@ function createRoonBridge(opts = {}) {
     start,
     getZones,
     getNowPlaying,
+    getImage,
     control,
     getStatus: () => ({
       connected: !!state.core,

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <limits.h>
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -21,6 +23,7 @@ static int net_volume_step = 2;
 static volatile bool run_threads = true;
 static char zone_label[64] = "Loading zone";
 static bool zone_resolved = false;
+static char zone_store_path[PATH_MAX];
 
 struct now_playing {
     char line1[MAX_LINE];
@@ -54,6 +57,10 @@ static void curl_string_copy(const char *data, const char *key, char *out, size_
 
 static bool refresh_zone_label(void);
 static void log_msg(const char *fmt, ...);
+static const char *extract_json_string(const char *start, const char *key, char *out, size_t len);
+static void load_zone_from_store(void);
+static void save_zone_to_store(const char *id, const char *name);
+static void init_zone_store_path(void);
 
 static bool fetch_now_playing(struct now_playing *state) {
     if (!zone_resolved) {
@@ -195,33 +202,16 @@ static bool refresh_zone_label(void) {
     bool found = false;
     bool want_any = zone_id[0] == '\0';
     while ((cursor = strstr(cursor, "\"zone_id\""))) {
-        const char *id_start = strchr(cursor, '"');
-        if (!id_start) break;
-        id_start = strchr(id_start + 1, '"');
-        if (!id_start) break;
-        id_start++;
-        const char *id_end = strchr(id_start, '"');
-        if (!id_end) break;
-        size_t id_len = id_end - id_start;
-        if (id_len >= sizeof(first_id)) id_len = sizeof(first_id) - 1;
         char current_id[64];
-        memcpy(current_id, id_start, id_len);
-        current_id[id_len] = '\0';
+        const char *after_id = extract_json_string(cursor, "\"zone_id\"", current_id, sizeof(current_id));
+        if (!after_id) break;
 
-        const char *name_key = strstr(id_end, "\"zone_name\"");
-        if (!name_key) break;
-        const char *name_start = strchr(name_key, '"');
-        if (!name_start) break;
-        name_start = strchr(name_start + 1, '"');
-        if (!name_start) break;
-        name_start++;
-        const char *name_end = strchr(name_start, '"');
-        if (!name_end) break;
-        size_t name_len = name_end - name_start;
-        if (name_len >= sizeof(first_name)) name_len = sizeof(first_name) - 1;
         char current_name[64];
-        memcpy(current_name, name_start, name_len);
-        current_name[name_len] = '\0';
+        const char *after_name = extract_json_string(after_id, "\"zone_name\"", current_name, sizeof(current_name));
+        if (!after_name) {
+            cursor = after_id;
+            continue;
+        }
 
         if (first_id[0] == '\0') {
             snprintf(first_id, sizeof(first_id), "%s", current_id);
@@ -236,9 +226,10 @@ static bool refresh_zone_label(void) {
             ui_set_zone_name(zone_label);
             found = true;
             zone_resolved = true;
+            save_zone_to_store(zone_id, zone_label);
             break;
         }
-        cursor = name_end + 1;
+        cursor = after_name;
     }
 
     if (!found && first_id[0]) {
@@ -246,6 +237,7 @@ static bool refresh_zone_label(void) {
         snprintf(zone_label, sizeof(zone_label), "%s", first_name);
         ui_set_zone_name(zone_label);
         zone_resolved = true;
+        save_zone_to_store(zone_id, zone_label);
         log_msg("zone fallback -> id=%s name=%s", zone_id, zone_label);
     } else if (!found) {
         ui_set_zone_name(zone_label);
@@ -256,6 +248,8 @@ static bool refresh_zone_label(void) {
     return zone_resolved;
 }
 int main(int argc, char **argv) {
+    init_zone_store_path();
+    load_zone_from_store();
     const char *env_base = getenv("ROON_BRIDGE_BASE");
     if (env_base && env_base[0]) {
         snprintf(bridge_base, sizeof(bridge_base), "%s", env_base);
@@ -289,4 +283,57 @@ static void log_msg(const char *fmt, ...) {
     vfprintf(stderr, fmt, args);
     fprintf(stderr, "\n");
     va_end(args);
+}
+
+static const char *extract_json_string(const char *start, const char *key, char *out, size_t len) {
+    const char *key_pos = strstr(start, key);
+    if (!key_pos) return NULL;
+    const char *colon = strchr(key_pos, ':');
+    if (!colon) return NULL;
+    const char *quote_start = strchr(colon, '"');
+    if (!quote_start) return NULL;
+    quote_start++;
+    const char *quote_end = strchr(quote_start, '"');
+    if (!quote_end) return NULL;
+    size_t copy_len = quote_end - quote_start;
+    if (copy_len >= len) copy_len = len - 1;
+    memcpy(out, quote_start, copy_len);
+    out[copy_len] = '\0';
+    return quote_end + 1;
+}
+
+static void init_zone_store_path(void) {
+    const char *home = getenv("HOME");
+    if (home && strlen(home) < PATH_MAX - 32) {
+        snprintf(zone_store_path, sizeof(zone_store_path), "%s/.roon_knob_zone", home);
+    } else {
+        snprintf(zone_store_path, sizeof(zone_store_path), ".roon_knob_zone");
+    }
+}
+
+static void load_zone_from_store(void) {
+    if (zone_store_path[0] == '\0') return;
+    FILE *f = fopen(zone_store_path, "r");
+    if (!f) return;
+    if (fgets(zone_id, sizeof(zone_id), f)) {
+        size_t len = strcspn(zone_id, "\r\n");
+        zone_id[len] = '\0';
+        if (zone_id[0]) {
+            snprintf(zone_label, sizeof(zone_label), "%s", zone_id);
+            log_msg("loaded stored zone id=%s", zone_id);
+        }
+    }
+    fclose(f);
+}
+
+static void save_zone_to_store(const char *id, const char *name) {
+    if (zone_store_path[0] == '\0' || !id || !id[0]) return;
+    FILE *f = fopen(zone_store_path, "w");
+    if (!f) {
+        log_msg("failed to write zone store %s: %s", zone_store_path, strerror(errno));
+        return;
+    }
+    fprintf(f, "%s\n", id);
+    fclose(f);
+    (void)name;
 }

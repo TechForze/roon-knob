@@ -180,7 +180,7 @@ static void build_layout(void) {
     lv_obj_t *dial = lv_obj_create(screen);
     lv_obj_remove_style_all(dial);
     lv_obj_set_size(dial, SAFE_SIZE, SAFE_SIZE);
-    lv_obj_set_style_bg_color(dial, lv_color_hex(0x11131b), 0);
+    lv_obj_set_style_bg_color(dial, lv_color_hex(0x000000), 0);  // Pure black for better contrast
     lv_obj_set_style_bg_opa(dial, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(dial, SAFE_SIZE / 2, 0);
     lv_obj_center(dial);
@@ -222,7 +222,7 @@ static void build_layout(void) {
     lv_obj_set_size(s_progress_bar, 140, 3);  // Shorter to fit in circle
     lv_obj_align(s_progress_bar, LV_ALIGN_BOTTOM_MID, 0, -30);  // Higher up
     lv_bar_set_range(s_progress_bar, 0, 1000);
-    lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x1a1c24), 0);
+    lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x333333), 0);  // Dark gray background
     lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x8a6fb0), LV_PART_INDICATOR); // Purple
     lv_obj_set_style_pad_all(s_progress_bar, 0, 0);
     lv_obj_set_style_radius(s_progress_bar, 2, 0);
@@ -233,7 +233,7 @@ static void build_layout(void) {
     lv_obj_align(s_volume_bar, LV_ALIGN_RIGHT_MID, -18, 25);  // Right side, lower position
     lv_bar_set_range(s_volume_bar, 0, 100);
     lv_bar_set_mode(s_volume_bar, LV_BAR_MODE_RANGE);  // For vertical fill from bottom
-    lv_obj_set_style_bg_color(s_volume_bar, lv_color_hex(0x1a1c24), 0);
+    lv_obj_set_style_bg_color(s_volume_bar, lv_color_hex(0x333333), 0);  // Dark gray background
     lv_obj_set_style_bg_color(s_volume_bar, lv_color_hex(0x5a8fc7), LV_PART_INDICATOR); // Blue
     lv_obj_set_style_pad_all(s_volume_bar, 0, 0);
     lv_obj_set_style_radius(s_volume_bar, 2, 0);
@@ -330,7 +330,7 @@ void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_i
     lv_obj_t *list_bg = lv_obj_create(s_zone_picker_container);
     lv_obj_remove_style_all(list_bg);
     lv_obj_set_size(list_bg, SAFE_SIZE, SAFE_SIZE);
-    lv_obj_set_style_bg_color(list_bg, lv_color_hex(0x1a1c24), 0);
+    lv_obj_set_style_bg_color(list_bg, lv_color_hex(0x000000), 0);  // Pure black for consistency
     lv_obj_set_style_bg_opa(list_bg, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(list_bg, SAFE_SIZE / 2, 0);  // Circular
     lv_obj_set_style_border_width(list_bg, 2, 0);
@@ -348,12 +348,12 @@ void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_i
     s_zone_list = lv_list_create(list_bg);
     lv_obj_set_size(s_zone_list, 160, 120);  // Narrower to fit in circular boundary
     lv_obj_align(s_zone_list, LV_ALIGN_CENTER, 0, 10);
-    lv_obj_set_style_bg_color(s_zone_list, lv_color_hex(0x11131b), 0);
+    lv_obj_set_style_bg_color(s_zone_list, lv_color_hex(0x000000), 0);  // Pure black
     lv_obj_set_style_border_width(s_zone_list, 0, 0);
 
     for (int i = 0; i < zone_count; i++) {
         lv_obj_t *btn = lv_list_add_button(s_zone_list, NULL, zone_names[i]);
-        lv_obj_set_style_bg_color(btn, lv_color_hex(i == selected_idx ? 0x2a5a9a : 0x11131b), 0);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(i == selected_idx ? 0x2a5a9a : 0x000000), 0);  // Pure black for unselected
         lv_obj_set_style_text_color(btn, lv_color_hex(0xffffff), 0);
     }
 }
@@ -391,14 +391,14 @@ void ui_zone_picker_scroll(int delta) {
         // Update old button
         lv_obj_t *old_btn = lv_obj_get_child(s_zone_list, s_zone_picker_selected);
         if (old_btn) {
-            lv_obj_set_style_bg_color(old_btn, lv_color_hex(0x11131b), 0);
+            lv_obj_set_style_bg_color(old_btn, lv_color_hex(0x000000), 0);  // Pure black for unselected
         }
 
         // Update new button
         s_zone_picker_selected = new_selected;
         lv_obj_t *new_btn = lv_obj_get_child(s_zone_list, s_zone_picker_selected);
         if (new_btn) {
-            lv_obj_set_style_bg_color(new_btn, lv_color_hex(0x2a5a9a), 0);
+            lv_obj_set_style_bg_color(new_btn, lv_color_hex(0x2a5a9a), 0);  // Blue for selected
             lv_obj_scroll_to_view(new_btn, LV_ANIM_ON);
         }
     }

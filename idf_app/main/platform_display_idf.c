@@ -1,4 +1,5 @@
 #include "platform_display_idf.h"
+#include "cst816.h"
 
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
@@ -221,6 +222,7 @@ static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
 };
 
 static lv_display_t *s_display = NULL;
+static lv_indev_t *s_touch_indev = NULL;
 static esp_lcd_panel_handle_t s_panel_handle = NULL;
 static esp_lcd_panel_io_handle_t s_io_handle = NULL;
 static bool s_hardware_ready = false;
@@ -261,6 +263,20 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
 
     // MUST call flush_ready here - the notify callback doesn't work properly with LVGL 9.x
     lv_display_flush_ready(disp);
+}
+
+// LVGL touch read callback
+static void lvgl_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+    (void)indev;
+    uint16_t x, y;
+
+    if (cst816_get_touch(&x, &y)) {
+        data->point.x = x;
+        data->point.y = y;
+        data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
 }
 
 bool platform_display_init(void) {
@@ -328,6 +344,13 @@ bool platform_display_init(void) {
     ESP_ERROR_CHECK(esp_lcd_panel_reset(s_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(s_panel_handle));
 
+    // Initialize CST816 touch controller
+    ESP_LOGI(TAG, "Initializing CST816 touch controller");
+    if (!cst816_init()) {
+        ESP_LOGW(TAG, "Failed to initialize CST816 touch - continuing without touch support");
+        // Don't fail the entire display init just because touch failed
+    }
+
     s_hardware_ready = true;
     ESP_LOGI(TAG, "Display hardware initialized successfully");
     return true;
@@ -365,11 +388,21 @@ bool platform_display_register_lvgl_driver(void) {
     // Register rounder callback for 2-pixel alignment requirement
     lv_display_add_event_cb(s_display, lvgl_rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 
+    // Register touch input device
+    ESP_LOGI(TAG, "Registering LVGL touch input device");
+    s_touch_indev = lv_indev_create();
+    if (!s_touch_indev) {
+        ESP_LOGE(TAG, "Failed to create LVGL touch input device");
+        return false;
+    }
+    lv_indev_set_type(s_touch_indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(s_touch_indev, lvgl_touch_read_cb);
+
     // Note: LVGL tick and timer_handler will be called by ui_loop_iter()
     // No separate LVGL task needed since ui_loop handles it
 
     s_lvgl_ready = true;
-    ESP_LOGI(TAG, "LVGL display driver registered successfully");
+    ESP_LOGI(TAG, "LVGL display driver and touch input registered successfully");
     return true;
 }
 

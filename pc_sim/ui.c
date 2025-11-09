@@ -35,10 +35,12 @@ static lv_obj_t *s_status_dot;
 static lv_obj_t *s_volume_bar;
 static lv_obj_t *s_progress_bar;
 static lv_obj_t *s_zone_label;
+static lv_obj_t *s_message_overlay;
 static lv_obj_t *s_message_label;
 static lv_obj_t *s_play_overlay;
 static lv_obj_t *s_play_overlay_label;
 static lv_timer_t *s_overlay_timer;
+static lv_timer_t *s_message_timer;
 
 static lv_obj_t *s_zone_picker_container;
 static lv_obj_t *s_zone_list;
@@ -68,6 +70,8 @@ static void set_status_dot(bool online);
 static void keyboard_event_cb(lv_event_t *e);
 static void show_play_overlay(bool playing);
 static void hide_play_overlay(lv_timer_t *timer);
+static void show_message_overlay(const char *msg);
+static void hide_message_overlay(lv_timer_t *timer);
 
 void ui_init(void) {
     lv_init();
@@ -92,6 +96,8 @@ void ui_init(void) {
 
     lv_label_set_text(s_zone_label, s_zone_name);
     lv_label_set_text(s_label_line1, s_pending.line1);
+
+    show_message_overlay("Starting...");
 }
 
 void ui_update(const char *line1, const char *line2, bool playing, int volume, int seek_position, int length) {
@@ -167,13 +173,6 @@ static void build_layout(void) {
     lv_obj_add_flag(s_zone_label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_zone_label, keyboard_event_cb, LV_EVENT_CLICKED, (void *)UI_INPUT_MENU);
 
-    s_message_label = lv_label_create(dial);
-    lv_obj_remove_style_all(s_message_label);
-    lv_obj_set_style_text_color(s_message_label, lv_color_hex(0xaeb6d5), 0);
-    lv_obj_set_style_text_font(s_message_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(s_message_label, LV_ALIGN_TOP_MID, 0, 30);
-    lv_label_set_text(s_message_label, "Starting...");
-
     s_label_line1 = lv_label_create(dial);
     lv_obj_set_width(s_label_line1, SAFE_SIZE - 32);
     lv_obj_set_style_text_color(s_label_line1, lv_color_hex(0xffffff), 0);
@@ -242,8 +241,8 @@ void ui_set_zone_name(const char *zone_name) {
 }
 
 void ui_set_message(const char *msg) {
-    if (!msg || !s_message_label) return;
-    lv_label_set_text(s_message_label, msg);
+    if (!msg) return;
+    show_message_overlay(msg);
 }
 
 static void keyboard_event_cb(lv_event_t *e) {
@@ -419,4 +418,46 @@ static void hide_play_overlay(lv_timer_t *timer) {
         s_play_overlay_label = NULL;
     }
     s_overlay_timer = NULL;
+}
+
+static void show_message_overlay(const char *msg) {
+    // Clean up existing overlay
+    if (s_message_overlay) {
+        lv_obj_del(s_message_overlay);
+        s_message_overlay = NULL;
+        s_message_label = NULL;
+    }
+    if (s_message_timer) {
+        lv_timer_del(s_message_timer);
+        s_message_timer = NULL;
+    }
+
+    // Create overlay
+    s_message_overlay = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(s_message_overlay);
+    lv_obj_set_size(s_message_overlay, 180, 60);
+    lv_obj_set_style_bg_color(s_message_overlay, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_message_overlay, LV_OPA_80, 0);
+    lv_obj_set_style_radius(s_message_overlay, 12, 0);
+    lv_obj_center(s_message_overlay);
+
+    s_message_label = lv_label_create(s_message_overlay);
+    lv_obj_set_style_text_font(s_message_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(s_message_label, lv_color_hex(0xffffff), 0);
+    lv_label_set_text(s_message_label, msg);
+    lv_obj_center(s_message_label);
+
+    // Auto-hide after 2 seconds
+    s_message_timer = lv_timer_create(hide_message_overlay, 2000, NULL);
+    lv_timer_set_repeat_count(s_message_timer, 1);
+}
+
+static void hide_message_overlay(lv_timer_t *timer) {
+    (void)timer;
+    if (s_message_overlay) {
+        lv_obj_del(s_message_overlay);
+        s_message_overlay = NULL;
+        s_message_label = NULL;
+    }
+    s_message_timer = NULL;
 }

@@ -18,31 +18,34 @@
 
 static const char *TAG = "main";
 
+static void report_http_result(const char *label, int result, const char *url, size_t len) {
+    if (result == 0) {
+        ESP_LOGI(TAG, "✓ %s (%s) -> %d bytes", label, url, len);
+    } else {
+        ESP_LOGE(TAG, "✗ %s (%s) failed (%d)", label, url, result);
+    }
+}
+
 static void test_http_connectivity(void) {
     ESP_LOGI(TAG, "=== Testing HTTP connectivity ===");
 
-    // Test 1: Public internet endpoint
-    ESP_LOGI(TAG, "Test 1: Trying public endpoint httpbin.org...");
-    char *response = NULL;
-    size_t response_len = 0;
-    int result = platform_http_get("http://httpbin.org/get", &response, &response_len);
-    if (result == 0 && response) {
-        ESP_LOGI(TAG, "✓ Public HTTP works! Got %d bytes from httpbin.org", response_len);
-        platform_http_free(response);
-    } else {
-        ESP_LOGE(TAG, "✗ Public HTTP FAILED - ESP32 HTTP client may be broken");
-    }
+    const struct {
+        const char *label;
+        const char *url;
+    } tests[] = {
+        { "Public endpoint", "http://httpbin.org/get" },
+        { "Bridge /zones", "http://192.168.1.2:8088/zones" },
+        { "Bridge /status", "http://192.168.1.2:8088/status" },
+        { "Bridge /now_playing/mock", "http://192.168.1.2:8088/now_playing/mock" },
+    };
 
-    // Test 2: Local bridge endpoint
-    ESP_LOGI(TAG, "Test 2: Trying local bridge http://192.168.1.2:8088/zones");
-    response = NULL;
-    response_len = 0;
-    result = platform_http_get("http://192.168.1.2:8088/zones", &response, &response_len);
-    if (result == 0 && response) {
-        ESP_LOGI(TAG, "✓ Local bridge works! Got %d bytes", response_len);
+    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); ++i) {
+        ESP_LOGI(TAG, "Test %zu: %s", i + 1, tests[i].label);
+        char *response = NULL;
+        size_t response_len = 0;
+        int result = platform_http_get(tests[i].url, &response, &response_len);
+        report_http_result(tests[i].label, result, tests[i].url, response_len);
         platform_http_free(response);
-    } else {
-        ESP_LOGE(TAG, "✗ Local bridge FAILED - network routing issue between ESP32 and local LAN");
     }
 
     ESP_LOGI(TAG, "=== HTTP connectivity test complete ===");

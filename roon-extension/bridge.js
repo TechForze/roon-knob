@@ -7,6 +7,7 @@ const MAX_RELATIVE_STEP_PER_CALL = 25;
 const MAX_VOLUME = 100;
 const MIN_VOLUME = 0;
 const CORE_LOSS_TIMEOUT_MS = 5 * 60 * 1000;
+const TRANSPORT_GRACE_PERIOD_MS = 5 * 1000; // Keep serving cached data for 5s during reconnect
 
 const fallbackSummary = (zone) => ({
   line1: 'Idle',
@@ -31,6 +32,7 @@ function createRoonBridge(opts = {}) {
     pendingRelative: new Map(),
     lastCoreSeen: 0,
     coreLossTimer: null,
+    transportDisconnectedAt: null,
   };
 
   const roon = new RoonApi({
@@ -50,6 +52,7 @@ function createRoonBridge(opts = {}) {
         version: core.display_version,
       };
       state.lastCoreSeen = Date.now();
+      state.transportDisconnectedAt = null; // Clear disconnect timer on reconnect
       if (state.coreLossTimer) {
         clearTimeout(state.coreLossTimer);
         state.coreLossTimer = null;
@@ -105,9 +108,11 @@ function createRoonBridge(opts = {}) {
           data.zones_changed.forEach(updateZone);
         }
       } else if (msg === 'NetworkError') {
-        log.warn('Zone subscription network error - transport may be stale');
-        // Mark transport as potentially stale, but don't clear zones yet
-        // The core_unpaired callback should fire if connection is truly lost
+        log.warn('Zone subscription network error - entering grace period');
+        // Mark when transport became unavailable, but keep serving cached data briefly
+        if (!state.transportDisconnectedAt) {
+          state.transportDisconnectedAt = Date.now();
+        }
       } else if (msg === 'Unsubscribed') {
         log.info('Zone subscription ended');
       } else {
@@ -150,10 +155,21 @@ function createRoonBridge(opts = {}) {
 
   function getNowPlaying(zone_id) {
     if (!zone_id) return null;
-    if (!state.core || !state.transport) {
-      log.warn('getNowPlaying called but core disconnected', { zone_id });
+
+    // Check if transport is available or still within grace period
+    const transportUnavailable = !state.core || !state.transport;
+    const withinGracePeriod = state.transportDisconnectedAt &&
+      (Date.now() - state.transportDisconnectedAt) < TRANSPORT_GRACE_PERIOD_MS;
+
+    if (transportUnavailable && !withinGracePeriod) {
+      log.warn('getNowPlaying: transport unavailable beyond grace period', { zone_id });
       return null;
     }
+
+    if (transportUnavailable && withinGracePeriod) {
+      log.debug('getNowPlaying: serving cached data during grace period', { zone_id });
+    }
+
     const cached = state.nowPlayingByZone.get(zone_id);
     if (cached) return cached;
     const zone = state.zones.find((z) => z.zone_id === zone_id);

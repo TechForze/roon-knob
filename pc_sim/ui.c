@@ -1,10 +1,10 @@
-#include <pthread.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
+
+#include "os_mutex.h"
 
 #include "lvgl.h"
 #include "src/drivers/sdl/lv_sdl_window.h"
@@ -38,7 +38,7 @@ static lv_obj_t *s_play_button;
 static lv_obj_t *s_vol_down_button;
 static lv_obj_t *s_vol_up_button;
 
-static pthread_mutex_t s_state_lock = PTHREAD_MUTEX_INITIALIZER;
+static os_mutex_t s_state_lock = OS_MUTEX_INITIALIZER;
 static struct ui_state s_pending = {
     .line1 = "Waiting for bridge",
     .line2 = "",
@@ -84,7 +84,7 @@ void ui_init(void) {
 }
 
 void ui_update(const char *line1, const char *line2, bool playing, int volume) {
-    pthread_mutex_lock(&s_state_lock);
+    os_mutex_lock(&s_state_lock);
     if (line1) {
         snprintf(s_pending.line1, sizeof(s_pending.line1), "%s", line1);
     }
@@ -96,14 +96,14 @@ void ui_update(const char *line1, const char *line2, bool playing, int volume) {
     if (volume > 100) volume = 100;
     s_pending.volume = volume;
     s_dirty = true;
-    pthread_mutex_unlock(&s_state_lock);
+    os_mutex_unlock(&s_state_lock);
 }
 
 void ui_set_status(bool online) {
-    pthread_mutex_lock(&s_state_lock);
+    os_mutex_lock(&s_state_lock);
     s_pending.online = online;
     s_dirty = true;
-    pthread_mutex_unlock(&s_state_lock);
+    os_mutex_unlock(&s_state_lock);
 }
 
 static void poll_pending(lv_timer_t *timer) {
@@ -111,13 +111,13 @@ static void poll_pending(lv_timer_t *timer) {
     struct ui_state local;
     bool update = false;
 
-    pthread_mutex_lock(&s_state_lock);
+    os_mutex_lock(&s_state_lock);
     if (s_dirty) {
         local = s_pending;
         s_dirty = false;
         update = true;
     }
-    pthread_mutex_unlock(&s_state_lock);
+    os_mutex_unlock(&s_state_lock);
 
     if (update) {
         apply_state(&local);

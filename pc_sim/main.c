@@ -1,4 +1,3 @@
-#include <pthread.h>
 #include <ctype.h>
 #include <strings.h>
 #include <stdbool.h>
@@ -6,8 +5,9 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
-#include <unistd.h>
 
+#include "os_thread.h"
+#include "os_time.h"
 #include "storage.h"
 #include "ui.h"
 #include "components/net_client/curl_client.h"
@@ -193,7 +193,7 @@ static void *poll_thread(void *arg) {
             ui_set_status(false);
             ui_set_message("Waiting for data...");
         }
-        sleep(POLL_INTERVAL_SECONDS);
+        os_sleep_sec(POLL_INTERVAL_SECONDS);
     }
     return NULL;
 }
@@ -280,12 +280,12 @@ int main(int argc, char **argv) {
     ui_set_input_handler(handle_input);
     refresh_zone_label();
 
-    pthread_t net_thread;
-    pthread_create(&net_thread, NULL, poll_thread, NULL);
+    os_thread_t net_thread;
+    os_thread_create(&net_thread, poll_thread, NULL);
 
     while (true) {
         ui_loop_iter();
-        usleep(5000);
+        os_sleep_us(5000);
     }
 }
 

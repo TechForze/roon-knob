@@ -294,7 +294,7 @@ static void apply_evt_async(void *data) {
             set_status_text("Retrying…");
             break;
     }
-    lv_mem_free(msg);
+    lv_free(msg);
 }
 
 void ui_network_register_menu(void) {
@@ -310,7 +310,7 @@ void ui_network_register_menu(void) {
 }
 
 void ui_network_on_event(rk_net_evt_t evt, const char *ip_opt) {
-    ui_net_evt_msg_t *msg = lv_mem_alloc(sizeof(*msg));
+    ui_net_evt_msg_t *msg = lv_malloc(sizeof(*msg));
     if (!msg) {
         ESP_LOGW(TAG, "no memory for UI event");
         return;

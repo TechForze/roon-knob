@@ -5,7 +5,7 @@
 #include "freertos/task.h"
 
 typedef TaskHandle_t os_thread_t;
-typedef void *(*os_thread_func_t)(void *);
+typedef void (*os_thread_func_t)(void *);
 
 static inline int os_thread_create(os_thread_t *thread, os_thread_func_t func, void *arg) {
     BaseType_t ret = xTaskCreate(
@@ -28,12 +28,35 @@ static inline int os_thread_join(os_thread_t thread) {
 
 #else
 #include <pthread.h>
+#include <stdlib.h>
 
 typedef pthread_t os_thread_t;
-typedef void *(*os_thread_func_t)(void *);
+typedef void (*os_thread_func_t)(void *);
+
+struct os_thread_start_ctx {
+    os_thread_func_t fn;
+    void *arg;
+};
+
+static inline void *os_thread_trampoline(void *ctx) {
+    struct os_thread_start_ctx start = *(struct os_thread_start_ctx *)ctx;
+    free(ctx);
+    start.fn(start.arg);
+    return NULL;
+}
 
 static inline int os_thread_create(os_thread_t *thread, os_thread_func_t func, void *arg) {
-    return pthread_create(thread, NULL, func, arg);
+    struct os_thread_start_ctx *ctx = malloc(sizeof(*ctx));
+    if (!ctx) {
+        return -1;
+    }
+    ctx->fn = func;
+    ctx->arg = arg;
+    int ret = pthread_create(thread, NULL, os_thread_trampoline, ctx);
+    if (ret != 0) {
+        free(ctx);
+    }
+    return ret;
 }
 
 static inline int os_thread_join(os_thread_t thread) {

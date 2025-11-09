@@ -65,7 +65,7 @@ static const char *extract_json_string(const char *start, const char *key, char 
 static bool send_control_json(const char *json);
 static void default_now_playing(struct now_playing_state *state);
 static void wait_for_poll_interval(void);
-static void *roon_poll_thread(void *arg);
+static void roon_poll_thread(void *arg);
 static void maybe_update_bridge_base(void);
 static void post_ui_update(const struct now_playing_state *state);
 static void post_ui_status(bool online);
@@ -346,7 +346,7 @@ static bool refresh_zone_label(bool prefer_zone_id) {
             should_sync = true;
         }
         s_state.zone_resolved = true;
-        success = should_sync && zone_label_copy[0] != '\\0';
+        success = should_sync && zone_label_copy[0] != '\0';
     }
     unlock_state();
 
@@ -444,7 +444,7 @@ static bool send_control_json(const char *json) {
     return true;
 }
 
-static void *roon_poll_thread(void *arg) {
+static void roon_poll_thread(void *arg) {
     (void)arg;
     struct now_playing_state state;
     default_now_playing(&state);
@@ -464,7 +464,6 @@ static void *roon_poll_thread(void *arg) {
         s_last_net_ok = ok;
         wait_for_poll_interval();
     }
-    return NULL;
 }
 
 void roon_client_start(const rk_cfg_t *cfg) {

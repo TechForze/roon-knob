@@ -13,6 +13,9 @@ Roon Knob consists of three main components:
 | LVGL PC Simulator | SDL2 desktop build for macOS/Linux that mirrors the firmware UI for rapid development. |
 | Roon Sidecar (Bridge) | Node.js service exposing `/zones`, `/now_playing`, and `/control` endpoints and advertising `_roonknob._tcp`. |
 
+The ESP32-S3 knob in this project has 16 MB of flash and 8 MB of PSRAM, so there is no need to shrink or adjust the partition table for space. The firmware can safely use the existing “factory + OTA0 + OTA1 + nvs + spiffs” layout. Do not change sdkconfig to a smaller table or add space-saving flags: there is plenty of room for both the app and future features.
+
+
 ## Repository Structure
 
 ```

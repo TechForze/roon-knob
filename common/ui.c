@@ -53,6 +53,10 @@ static bool s_message_dirty = false;
 static ui_input_cb_t s_input_cb;
 static char s_zone_name[64] = "Zone";
 
+static inline const lv_font_t *font_small(void) { return LV_FONT_DEFAULT; }
+static inline const lv_font_t *font_normal(void) { return LV_FONT_DEFAULT; }
+static inline const lv_font_t *font_large(void) { return LV_FONT_DEFAULT; }
+
 static void apply_state(const struct ui_state *state);
 static void build_layout(void);
 static void poll_pending(lv_timer_t *timer);
@@ -149,7 +153,7 @@ static void build_layout(void) {
     s_zone_label = lv_label_create(dial);
     lv_obj_remove_style_all(s_zone_label);
     lv_label_set_text(s_zone_label, s_zone_name);
-    lv_obj_set_style_text_font(s_zone_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(s_zone_label, font_small(), 0);
     lv_obj_set_style_text_color(s_zone_label, lv_color_hex(0xaeb6d5), 0);
     lv_obj_align(s_zone_label, LV_ALIGN_TOP_MID, 0, 25);  // Lower to avoid circular clip
     lv_obj_add_flag(s_zone_label, LV_OBJ_FLAG_CLICKABLE);
@@ -158,7 +162,7 @@ static void build_layout(void) {
     s_label_line1 = lv_label_create(dial);
     lv_obj_set_width(s_label_line1, SAFE_SIZE - 32);
     lv_obj_set_style_text_color(s_label_line1, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(s_label_line1, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_label_line1, font_large(), 0);
     lv_label_set_long_mode(s_label_line1, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(s_label_line1, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_label_line1, LV_ALIGN_CENTER, 0, -20);
@@ -166,7 +170,7 @@ static void build_layout(void) {
     s_label_line2 = lv_label_create(dial);
     lv_obj_set_width(s_label_line2, SAFE_SIZE - 32);
     lv_obj_set_style_text_color(s_label_line2, lv_color_hex(0xaeb6d5), 0);
-    lv_obj_set_style_text_font(s_label_line2, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_label_line2, font_small(), 0);
     lv_label_set_long_mode(s_label_line2, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_align(s_label_line2, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align_to(s_label_line2, s_label_line1, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
@@ -197,7 +201,7 @@ static void build_layout(void) {
     lv_obj_remove_style_all(vol_icon);
     lv_label_set_text(vol_icon, LV_SYMBOL_VOLUME_MAX);
     lv_obj_set_style_text_color(vol_icon, lv_color_hex(0x7a8fc7), 0);
-    lv_obj_set_style_text_font(vol_icon, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(vol_icon, font_normal(), 0);
     lv_obj_align(vol_icon, LV_ALIGN_RIGHT_MID, -38, 50);  // Below and left of bar
 
     // Play/pause indicator - above progress bar
@@ -205,7 +209,7 @@ static void build_layout(void) {
     lv_obj_remove_style_all(s_paused_label);
     lv_label_set_text(s_paused_label, LV_SYMBOL_PLAY);  // Show play icon by default
     lv_obj_set_style_text_color(s_paused_label, lv_color_hex(0x7a8fc7), 0);
-    lv_obj_set_style_text_font(s_paused_label, &lv_font_montserrat_20, 0);  // Larger for icon
+    lv_obj_set_style_text_font(s_paused_label, font_large(), 0);  // Larger for icon
     lv_obj_align(s_paused_label, LV_ALIGN_BOTTOM_MID, 0, -50);  // Above progress bar
 
     apply_state(&s_pending);
@@ -295,7 +299,7 @@ void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_i
     lv_obj_t *title = lv_label_create(list_bg);
     lv_label_set_text(title, "Select Zone");
     lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(title, font_normal(), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 25);  // Lower to avoid circular clip
 
     // Zone list - narrower and shorter to fit in circle
@@ -385,7 +389,7 @@ static void show_message_overlay(const char *msg) {
     lv_obj_center(s_message_overlay);
 
     s_message_label = lv_label_create(s_message_overlay);
-    lv_obj_set_style_text_font(s_message_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(s_message_label, font_normal(), 0);
     lv_obj_set_style_text_color(s_message_label, lv_color_hex(0xffffff), 0);
     lv_label_set_text(s_message_label, msg);
     lv_obj_center(s_message_label);

@@ -32,7 +32,7 @@ int platform_task_start(platform_task_fn_t fn, void *arg) {
         return -1;
     }
     os_thread_t thread;
-    int err = os_thread_create(&thread, (os_thread_func_t)fn, arg);
+    int err = os_thread_create(&thread, fn, arg);
     (void)thread;
     return err;
 }

@@ -19,6 +19,7 @@
 static char bridge_base[256] = "http://127.0.0.1:8088";
 static char zone_id[64] = "";
 static bool net_ok = false;
+static bool last_net_ok = false;
 static int net_volume_step = 2;
 static volatile bool run_threads = true;
 static volatile bool trigger_poll = false;
@@ -206,10 +207,8 @@ static void handle_input(ui_input_event_t ev) {
                     zone_resolved = true;
                     log_msg("selected zone: %s (%s)", zone_label, zone_id);
 
-                    // Clear old data and show loading state
-                    ui_update("Loading...", "", false, 0, 0, 0);
+                    // Show loading message and trigger immediate poll
                     ui_set_message("Loading zone...");
-                    ui_set_status(false);
 
                     // Trigger immediate poll
                     trigger_poll = true;
@@ -287,11 +286,18 @@ static void *poll_thread(void *arg) {
         if (ok) {
             ui_update(state.line1, state.line2, state.is_playing, state.volume, state.seek_position, state.length);
             ui_set_status(true);
-            ui_set_message("Connected");
+            // Only show "Connected" message on state transition
+            if (!last_net_ok) {
+                ui_set_message("Connected");
+            }
         } else {
             ui_set_status(false);
-            ui_set_message("Waiting for data...");
+            // Only show "Waiting for data..." message on state transition
+            if (last_net_ok) {
+                ui_set_message("Waiting for data...");
+            }
         }
+        last_net_ok = ok;
 
         // Sleep with interrupt capability for zone changes
         for (int i = 0; i < POLL_INTERVAL_SECONDS * 10 && run_threads; i++) {

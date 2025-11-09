@@ -3,8 +3,8 @@
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_timer.h"
 #include "esp_lcd_panel_io.h"
@@ -30,18 +30,6 @@ static const char *TAG = "display";
 #define PIN_NUM_LCD_DATA3   ((gpio_num_t)18)
 #define PIN_NUM_LCD_RST     ((gpio_num_t)21)
 #define PIN_NUM_BK_LIGHT    ((gpio_num_t)47)
-
-#define LVGL_TICK_PERIOD_MS    2
-#define LVGL_TASK_MAX_DELAY_MS 500
-#define LVGL_TASK_MIN_DELAY_MS 5
-#define LVGL_TASK_STACK_SIZE   (6 * 1024)
-#define LVGL_TASK_PRIORITY     2
-
-#if CONFIG_LV_COLOR_DEPTH == 32
-#define LCD_BIT_PER_PIXEL (24)
-#elif CONFIG_LV_COLOR_DEPTH == 16
-#define LCD_BIT_PER_PIXEL (16)
-#endif
 
 // LCD initialization commands for SH8601 (from reference example)
 static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
@@ -232,7 +220,6 @@ static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x36, (uint8_t[]){0x00}, 1, 0},  // No rotation
 };
 
-static SemaphoreHandle_t lvgl_mux = NULL;
 static lv_display_t *s_display = NULL;
 static esp_lcd_panel_handle_t s_panel_handle = NULL;
 static esp_lcd_panel_io_handle_t s_io_handle = NULL;
@@ -248,80 +235,56 @@ static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_
     return false;
 }
 
+// Rounder callback for SH8601 display (requires 2-pixel alignment)
+static void lvgl_rounder_cb(lv_event_t *e) {
+    lv_area_t *area = lv_event_get_param(e);
+
+    // Round the start of coordinate down to the nearest 2M number
+    area->x1 = (area->x1 >> 1) << 1;
+    area->y1 = (area->y1 >> 1) << 1;
+    // Round the end of coordinate up to the nearest 2N+1 number
+    area->x2 = ((area->x2 >> 1) << 1) + 1;
+    area->y2 = ((area->y2 >> 1) << 1) + 1;
+}
+
 // LVGL flush callback
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
 
-    // Apply rounding for SH8601 display (needs 2-pixel alignment)
-    // Round the start of coordinate down to the nearest 2M number
-    int offsetx1 = (area->x1 >> 1) << 1;
-    int offsety1 = (area->y1 >> 1) << 1;
-    // Round the end of coordinate up to the nearest 2N+1 number
-    int offsetx2 = ((area->x2 >> 1) << 1) + 1;
-    int offsety2 = ((area->y2 >> 1) << 1) + 1;
+    const int offsetx1 = area->x1;
+    const int offsetx2 = area->x2;
+    const int offsety1 = area->y1;
+    const int offsety2 = area->y2;
 
-#if LCD_BIT_PER_PIXEL == 24
-    // Convert RGB565 to RGB888 for 24-bit displays
-    lv_color_t *color_map = (lv_color_t *)px_map;
-    uint8_t *to = px_map;
-    uint8_t temp = 0;
-    uint16_t pixel_num = (offsetx2 - offsetx1 + 1) * (offsety2 - offsety1 + 1);
-
-    // Special dealing for first pixel
-    temp = color_map[0].blue;
-    *to++ = color_map[0].red;
-    *to++ = color_map[0].green;
-    *to++ = temp;
-    // Normal dealing for other pixels
-    for (int i = 1; i < pixel_num; i++) {
-        *to++ = color_map[i].red;
-        *to++ = color_map[i].green;
-        *to++ = color_map[i].blue;
-    }
-#endif
-
-    // Draw bitmap to display
+    // For RGB565 (16-bit), no conversion needed - just draw directly
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, px_map);
 
     // Signal LVGL that flushing is done
     lv_display_flush_ready(disp);
 }
 
-// LVGL tick callback
-static void increase_lvgl_tick(void *arg) {
-    (void)arg;
-    lv_tick_inc(LVGL_TICK_PERIOD_MS);
-}
-
-// LVGL task
-static void lvgl_port_task(void *arg) {
-    (void)arg;
-    ESP_LOGI(TAG, "LVGL task started");
-    uint32_t task_delay_ms = LVGL_TASK_MAX_DELAY_MS;
-    while (1) {
-        if (lvgl_mux && xSemaphoreTake(lvgl_mux, portMAX_DELAY) == pdTRUE) {
-            task_delay_ms = lv_timer_handler();
-            xSemaphoreGive(lvgl_mux);
-        }
-        if (task_delay_ms > LVGL_TASK_MAX_DELAY_MS) {
-            task_delay_ms = LVGL_TASK_MAX_DELAY_MS;
-        } else if (task_delay_ms < LVGL_TASK_MIN_DELAY_MS) {
-            task_delay_ms = LVGL_TASK_MIN_DELAY_MS;
-        }
-        vTaskDelay(pdMS_TO_TICKS(task_delay_ms));
-    }
-}
-
 bool platform_display_init(void) {
     ESP_LOGI(TAG, "Initializing display hardware");
 
-    // Initialize backlight (full brightness)
-    gpio_config_t bk_gpio_config = {
-        .pin_bit_mask = 1ULL << PIN_NUM_BK_LIGHT,
-        .mode = GPIO_MODE_OUTPUT,
+    // Initialize backlight with PWM at reduced brightness (50%)
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_8_BIT,
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = 5000,
+        .clk_cfg = LEDC_AUTO_CLK
     };
-    ESP_ERROR_CHECK(gpio_config(&bk_gpio_config));
-    gpio_set_level(PIN_NUM_BK_LIGHT, 1);
+    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+
+    ledc_channel_config_t ledc_channel = {
+        .gpio_num = PIN_NUM_BK_LIGHT,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .timer_sel = LEDC_TIMER_0,
+        .duty = 128,  // 50% brightness (0-255)
+        .hpoint = 0
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
 
     // Initialize SPI bus
     ESP_LOGI(TAG, "Initialize SPI bus");
@@ -385,41 +348,25 @@ bool platform_display_register_lvgl_driver(void) {
         return false;
     }
 
-    // Allocate draw buffers
+    // Allocate and clear draw buffers (zero-initialize to prevent garbage/pink display)
     size_t buf_size = LCD_H_RES * LVGL_BUF_HEIGHT * sizeof(lv_color_t);
-    void *buf1 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    void *buf2 = heap_caps_malloc(buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    void *buf1 = heap_caps_calloc(1, buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    void *buf2 = heap_caps_calloc(1, buf_size, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!buf1 || !buf2) {
         ESP_LOGE(TAG, "Failed to allocate LVGL draw buffers");
         return false;
     }
+    ESP_LOGI(TAG, "Allocated %zu bytes for each draw buffer", buf_size);
 
     lv_display_set_buffers(s_display, buf1, buf2, buf_size, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(s_display, lvgl_flush_cb);
     lv_display_set_user_data(s_display, s_panel_handle);
 
-    // Install LVGL tick timer
-    ESP_LOGI(TAG, "Install LVGL tick timer");
-    const esp_timer_create_args_t lvgl_tick_timer_args = {
-        .callback = &increase_lvgl_tick,
-        .name = "lvgl_tick"
-    };
-    esp_timer_handle_t lvgl_tick_timer = NULL;
-    ESP_ERROR_CHECK(esp_timer_create(&lvgl_tick_timer_args, &lvgl_tick_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(lvgl_tick_timer, LVGL_TICK_PERIOD_MS * 1000));
+    // Register rounder callback for 2-pixel alignment requirement
+    lv_display_add_event_cb(s_display, lvgl_rounder_cb, LV_EVENT_INVALIDATE_AREA, NULL);
 
-    // Create mutex and LVGL task
-    lvgl_mux = xSemaphoreCreateMutex();
-    if (!lvgl_mux) {
-        ESP_LOGE(TAG, "Failed to create LVGL mutex");
-        return false;
-    }
-
-    BaseType_t ret = xTaskCreate(lvgl_port_task, "LVGL", LVGL_TASK_STACK_SIZE, NULL, LVGL_TASK_PRIORITY, NULL);
-    if (ret != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create LVGL task");
-        return false;
-    }
+    // Note: LVGL tick and timer_handler will be called by ui_loop_iter()
+    // No separate LVGL task needed since ui_loop handles it
 
     s_lvgl_ready = true;
     ESP_LOGI(TAG, "LVGL display driver registered successfully");

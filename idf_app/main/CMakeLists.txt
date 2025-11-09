@@ -35,6 +35,7 @@ idf_component_register(
         nvs_flash
         esp_http_client
         driver
+        esp_driver_ledc
 )
 
 set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD 11)

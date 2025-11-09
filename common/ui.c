@@ -161,7 +161,7 @@ static void build_layout(void) {
 
     ESP_LOGI(UI_TAG, "build_layout: setting up screen styles");
     lv_obj_remove_style_all(screen);
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x04050a), 0);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);  // Pure black background
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
     lv_obj_t *dial = lv_obj_create(screen);
@@ -294,7 +294,7 @@ void ui_set_message(const char *msg) {
 }
 
 void ui_loop_iter(void) {
-    lv_tick_inc(5);
+    lv_tick_inc(10);  // Match the 10ms delay in ui_loop_task
     platform_task_run_pending();
     lv_timer_handler();
 }

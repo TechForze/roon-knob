@@ -58,12 +58,16 @@ static void apply_full_defaults(rk_cfg_t *cfg) {
 
 static void ensure_cfg_loaded(void) {
     rk_cfg_t cfg = {0};
-    bool has_wifi = platform_storage_load(&cfg);
+    bool load_ok = platform_storage_load(&cfg);
+    (void)load_ok;  // Unused but kept for clarity
     bool blob_exists = have_blob(&cfg);
+    bool has_wifi_creds = (cfg.ssid[0] != '\0');
+
     if (!blob_exists) {
         apply_full_defaults(&cfg);
         platform_storage_save(&cfg);
-    } else if (!has_wifi) {
+    } else if (!has_wifi_creds) {
+        // Apply WiFi defaults when SSID is empty
         apply_wifi_defaults(&cfg);
         platform_storage_save(&cfg);
     }

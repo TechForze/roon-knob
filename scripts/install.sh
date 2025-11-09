@@ -8,21 +8,27 @@ ZONE_ID="${ZONE_ID:-office}"
 
 cd "$(dirname "$0")/../idf_app"
 
-# Only write sdkconfig.override if it would change
-NEW_CONFIG="CONFIG_RK_DEFAULT_SSID=\"${SSID}\"
-CONFIG_RK_DEFAULT_PASS=\"${PASS}\"
-CONFIG_RK_DEFAULT_BRIDGE_BASE=\"${BRIDGE_BASE}\"
-CONFIG_RK_DEFAULT_ZONE_ID=\"${ZONE_ID}\""
-
-if [ ! -f sdkconfig.override ] || [ "$(cat sdkconfig.override)" != "$NEW_CONFIG" ]; then
-    echo "Updating sdkconfig.override..."
-    echo "$NEW_CONFIG" > sdkconfig.override
-fi
+# Write credentials to git-ignored sdkconfig.local
+cat > sdkconfig.local <<EOF
+CONFIG_RK_DEFAULT_SSID="${SSID}"
+CONFIG_RK_DEFAULT_PASS="${PASS}"
+CONFIG_RK_DEFAULT_BRIDGE_BASE="${BRIDGE_BASE}"
+CONFIG_RK_DEFAULT_ZONE_ID="${ZONE_ID}"
+EOF
+echo "Updated sdkconfig.local: SSID=$SSID BRIDGE_BASE=$BRIDGE_BASE ZONE_ID=$ZONE_ID"
 
 # Only set-target if not already set to avoid unnecessary fullclean
 if [ ! -f build/CMakeCache.txt ] || ! grep -q "IDF_TARGET:STRING=esp32s3" build/CMakeCache.txt 2>/dev/null; then
     idf.py set-target esp32s3
 fi
+
+# Set SDKCONFIG_DEFAULTS to load sdkconfig.local along with defaults
+export SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.local"
+
+# Ensure sdkconfig exists and has been regenerated with sdkconfig.local
+rm -f sdkconfig
+idf.py reconfigure
+
 idf.py build
 export ESPTOOL_OPEN_PORT_ATTEMPTS=0
 idf.py -p "$PORT" -b 921600 flash

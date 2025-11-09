@@ -66,14 +66,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "Initializing UI...");
     ui_init();
 
-    // Create UI loop task with sufficient stack BEFORE creating more UI elements
-    ESP_LOGI(TAG, "Creating UI loop task");
-    xTaskCreate(ui_loop_task, "ui_loop", 4096, NULL, 5, NULL);
-
-    // Give UI loop task a moment to start
-    vTaskDelay(pdMS_TO_TICKS(100));
-
-    // Register network configuration menu (creates LVGL objects)
+    // Register network configuration menu BEFORE starting ui_loop task
     ui_network_register_menu();
 
     // Start WiFi (will use defaults from Kconfig or saved config)
@@ -86,6 +79,10 @@ void app_main(void) {
     // Start application logic
     ESP_LOGI(TAG, "Starting app...");
     app_entry();
+
+    // Create UI loop task LAST - with lower priority so it doesn't block
+    ESP_LOGI(TAG, "Creating UI loop task");
+    xTaskCreate(ui_loop_task, "ui_loop", 8192, NULL, 2, NULL);  // 8KB stack (LVGL theme needs more)
 
     ESP_LOGI(TAG, "Initialization complete");
 }

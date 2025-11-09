@@ -214,7 +214,7 @@ static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
     {0xD9, (uint8_t[]){0xAA}, 1, 0},
     {0xF3, (uint8_t[]){0x01}, 1, 0},
     {0xF0, (uint8_t[]){0x00}, 1, 0},
-    {0x21, (uint8_t[]){0x00}, 1, 0},
+    {0x21, (uint8_t[]){0x00}, 1, 0},  // 0x21 = inversion OFF (matches reference)
     {0x11, (uint8_t[]){0x00}, 1, 120},
     {0x29, (uint8_t[]){0x00}, 1, 0},
     {0x36, (uint8_t[]){0x00}, 1, 0},  // No rotation
@@ -259,7 +259,7 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
     // For RGB565 (16-bit), no conversion needed - just draw directly
     esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, px_map);
 
-    // Signal LVGL that flushing is done
+    // MUST call flush_ready here - the notify callback doesn't work properly with LVGL 9.x
     lv_display_flush_ready(disp);
 }
 
@@ -281,7 +281,7 @@ bool platform_display_init(void) {
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .channel = LEDC_CHANNEL_0,
         .timer_sel = LEDC_TIMER_0,
-        .duty = 128,  // 50% brightness (0-255)
+        .duty = 16,  // 6.25% brightness (0-255) - very dim
         .hpoint = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
@@ -298,12 +298,12 @@ bool platform_display_init(void) {
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
-    // Install panel IO (will register callback when LVGL display is created)
+    // Install panel IO
     ESP_LOGI(TAG, "Install panel IO");
     const esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(
         PIN_NUM_LCD_CS,
-        notify_lvgl_flush_ready,
-        &s_display  // Will be NULL initially, updated later
+        NULL,  // No callback - we call flush_ready in flush_cb
+        NULL
     );
 
     sh8601_vendor_config_t vendor_config = {
@@ -321,7 +321,7 @@ bool platform_display_init(void) {
     const esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = PIN_NUM_LCD_RST,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
-        .bits_per_pixel = LCD_BIT_PER_PIXEL,
+        .bits_per_pixel = 16,  // RGB565
         .vendor_config = &vendor_config,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(s_io_handle, &panel_config, &s_panel_handle));

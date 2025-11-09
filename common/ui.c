@@ -83,6 +83,19 @@ static void hide_message_overlay(lv_timer_t *timer);
 void ui_init(void) {
     ESP_LOGI(UI_TAG, "ui_init: start");
 
+    // Apply LVGL default dark theme for better contrast
+    lv_theme_t *theme = lv_theme_default_init(
+        NULL,                          // display
+        lv_palette_main(LV_PALETTE_BLUE),  // primary color
+        lv_palette_main(LV_PALETTE_RED),   // secondary color
+        true,                          // dark mode
+        LV_FONT_DEFAULT                // font
+    );
+    if (theme) {
+        lv_display_set_theme(lv_display_get_default(), theme);
+        ESP_LOGI(UI_TAG, "Applied default dark theme");
+    }
+
     build_layout();
 
     ESP_LOGI(UI_TAG, "build_layout done");
@@ -176,7 +189,7 @@ static void build_layout(void) {
     lv_obj_remove_style_all(s_status_dot);
     lv_obj_set_size(s_status_dot, 14, 14);
     lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(0x5b5f73), 0);
+    lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(0x808080), 0);  // Gray offline, will change when online
     lv_obj_align(s_status_dot, LV_ALIGN_TOP_RIGHT, -16, 16);
 
     s_zone_label = lv_label_create(dial);
@@ -229,7 +242,7 @@ static void build_layout(void) {
     lv_obj_t *vol_icon = lv_label_create(dial);
     lv_obj_remove_style_all(vol_icon);
     lv_label_set_text(vol_icon, LV_SYMBOL_VOLUME_MAX);
-    lv_obj_set_style_text_color(vol_icon, lv_color_hex(0x7a8fc7), 0);
+    lv_obj_set_style_text_color(vol_icon, lv_color_hex(0xD0D0D0), 0);  // Light gray for visibility
     lv_obj_set_style_text_font(vol_icon, font_normal(), 0);
     lv_obj_align(vol_icon, LV_ALIGN_RIGHT_MID, -38, 50);  // Below and left of bar
 
@@ -237,7 +250,7 @@ static void build_layout(void) {
     s_paused_label = lv_label_create(dial);
     lv_obj_remove_style_all(s_paused_label);
     lv_label_set_text(s_paused_label, LV_SYMBOL_PLAY);  // Show play icon by default
-    lv_obj_set_style_text_color(s_paused_label, lv_color_hex(0x7a8fc7), 0);
+    lv_obj_set_style_text_color(s_paused_label, lv_color_hex(0xFFFFFF), 0);  // Bright white for visibility
     lv_obj_set_style_text_font(s_paused_label, font_large(), 0);  // Larger for icon
     lv_obj_align(s_paused_label, LV_ALIGN_BOTTOM_MID, 0, -50);  // Above progress bar
 

@@ -5,6 +5,7 @@ cmake-build-*
 # IDF
 sdkconfig
 sdkconfig.old
+sdkconfig.local
 idf_*.log
 
 # Node modules
@@ -14,3 +15,4 @@ roon-extension/config.json
 # Beads db
 .beads/
 idf_app/managed_components/*
+idf_app/sdkconfig.override

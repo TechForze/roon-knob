@@ -104,6 +104,14 @@ function createRoonBridge(opts = {}) {
         if (Array.isArray(data?.zones_changed)) {
           data.zones_changed.forEach(updateZone);
         }
+      } else if (msg === 'NetworkError') {
+        log.warn('Zone subscription network error - transport may be stale');
+        // Mark transport as potentially stale, but don't clear zones yet
+        // The core_unpaired callback should fire if connection is truly lost
+      } else if (msg === 'Unsubscribed') {
+        log.info('Zone subscription ended');
+      } else {
+        log.warn('Unexpected transport event', { msg, data });
       }
     });
 
@@ -142,6 +150,10 @@ function createRoonBridge(opts = {}) {
 
   function getNowPlaying(zone_id) {
     if (!zone_id) return null;
+    if (!state.core || !state.transport) {
+      log.warn('getNowPlaying called but core disconnected', { zone_id });
+      return null;
+    }
     const cached = state.nowPlayingByZone.get(zone_id);
     if (cached) return cached;
     const zone = state.zones.find((z) => z.zone_id === zone_id);

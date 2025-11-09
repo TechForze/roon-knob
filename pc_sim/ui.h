@@ -21,6 +21,8 @@ void ui_set_input_handler(ui_input_cb_t handler);
 void ui_loop_iter(void);
 void ui_set_zone_name(const char *zone_name);
 void ui_set_message(const char *msg);
+void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_idx);
+void ui_hide_zone_picker(void);
 
 #ifdef __cplusplus
 }

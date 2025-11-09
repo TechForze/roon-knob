@@ -245,15 +245,21 @@ static void keyboard_event_cb(lv_event_t *e) {
     if (lv_event_get_code(e) == LV_EVENT_KEY) {
         uint32_t key = lv_event_get_key(e);
         switch(key) {
-            case LV_KEY_LEFT:
-                s_input_cb(UI_INPUT_VOL_DOWN);
-                break;
+            case LV_KEY_UP:
             case LV_KEY_RIGHT:
                 s_input_cb(UI_INPUT_VOL_UP);
+                break;
+            case LV_KEY_DOWN:
+            case LV_KEY_LEFT:
+                s_input_cb(UI_INPUT_VOL_DOWN);
                 break;
             case LV_KEY_ENTER:
             case ' ':
                 s_input_cb(UI_INPUT_PLAY_PAUSE);
+                break;
+            case 'z':
+            case 'm':
+                s_input_cb(UI_INPUT_MENU);
                 break;
             default:
                 break;

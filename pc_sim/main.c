@@ -12,7 +12,7 @@
 #include "ui.h"
 #include "components/net_client/curl_client.h"
 
-#define POLL_INTERVAL_SECONDS 3
+#define POLL_INTERVAL_SECONDS 5
 #define MAX_LINE 128
 #define MAX_ZONES 32
 
@@ -380,10 +380,11 @@ int main(int argc, char **argv) {
     }
     const char *env_zone = getenv("ZONE_ID");
     if (env_zone && env_zone[0]) {
+        // Environment variable overrides stored zone
         snprintf(zone_id, sizeof(zone_id), "%s", env_zone);
         snprintf(zone_label, sizeof(zone_label), "%s", env_zone);
-    } else {
-        zone_id[0] = '\0';
+    } else if (zone_id[0] == '\0') {
+        // No env var and no stored zone - will auto-select first zone
         snprintf(zone_label, sizeof(zone_label), "%s", "Loading zone");
     }
     ui_init();

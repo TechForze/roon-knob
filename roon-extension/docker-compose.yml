@@ -7,6 +7,9 @@ services:
       PORT: 8088
       LOG_LEVEL: info
       ROON_SERVICE_PORT: 9330
+      # Override the mDNS `base` so the knob discovers an IP instead of a hostname.
+      # Set this to `http://<ip>:8088` if the default advertised hostname is unreachable.
+      # MDNS_BASE: http://192.168.1.2:8088
     network_mode: host
     volumes:
       - roon-knob-bridge-data:/home/node/app/data

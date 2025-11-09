@@ -28,6 +28,7 @@ static void report_http_result(const char *label, int result, const char *url, s
 
 static void test_http_connectivity(void) {
     ESP_LOGI(TAG, "=== Testing HTTP connectivity ===");
+    ui_set_message("Testing connection to bridge...");
 
     const struct {
         const char *label;
@@ -55,6 +56,10 @@ void rk_net_evt_cb(rk_net_evt_t evt, const char *ip_opt) {
     // Notify UI about network events
     ui_network_on_event(evt, ip_opt);
 
+    if (evt == RK_NET_EVT_CONNECTING) {
+        ui_set_message("Initializing Wi-Fi...");
+    }
+
     // Notify roon_client when network is ready
     if (evt == RK_NET_EVT_GOT_IP) {
         ESP_LOGI(TAG, "WiFi connected with IP: %s - enabling HTTP", ip_opt ? ip_opt : "unknown");
@@ -62,8 +67,11 @@ void rk_net_evt_cb(rk_net_evt_t evt, const char *ip_opt) {
         // Run connectivity test to diagnose network issues
         test_http_connectivity();
 
+        ui_set_message("Bridge is ready");
+
         roon_client_set_network_ready(true);
     } else if (evt == RK_NET_EVT_FAIL) {
+        ui_set_message("Network unavailable");
         roon_client_set_network_ready(false);
     }
 }
@@ -113,9 +121,6 @@ void app_main(void) {
     // Now safe to initialize UI (depends on LVGL display being registered)
     ESP_LOGI(TAG, "Initializing UI...");
     ui_init();
-
-    // Register network configuration menu BEFORE starting ui_loop task
-    ui_network_register_menu();
 
     // Start WiFi (will use defaults from Kconfig or saved config)
     ESP_LOGI(TAG, "Starting WiFi...");

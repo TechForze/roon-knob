@@ -9,6 +9,7 @@
 #include "os_mutex.h"
 #include "ui.h"
 
+#include <ctype.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -67,6 +68,8 @@ static bool send_control_json(const char *json);
 static void default_now_playing(struct now_playing_state *state);
 static void wait_for_poll_interval(void);
 static void roon_poll_thread(void *arg);
+static bool host_is_numeric_ip(const char *url);
+static bool host_is_numeric_ip(const char *url);
 static void maybe_update_bridge_base(void);
 static void post_ui_update(const struct now_playing_state *state);
 static void post_ui_status(bool online);
@@ -83,6 +86,35 @@ static void ui_update_cb(void *arg) {
     }
     ui_update(state->line1, state->line2, state->is_playing, state->volume, state->seek_position, state->length);
     free(state);
+}
+
+static bool host_is_numeric_ip(const char *url) {
+    if (!url || !url[0]) {
+        return false;
+    }
+    const char *host = url;
+    const char *scheme = strstr(url, "://");
+    if (scheme) {
+        host = scheme + 3;
+    }
+    const char *end = host;
+    while (*end && *end != ':' && *end != '/' && *end != '\0') {
+        ++end;
+    }
+    if (end == host) {
+        return false;
+    }
+    bool has_digit = false;
+    for (const char *p = host; p < end; ++p) {
+        if (*p == '.') {
+            continue;
+        }
+        if (!isdigit((unsigned char)*p)) {
+            return false;
+        }
+        has_digit = true;
+    }
+    return has_digit;
 }
 
 static void ui_status_cb(void *arg) {
@@ -195,6 +227,16 @@ static void wait_for_poll_interval(void) {
 static void maybe_update_bridge_base(void) {
     char discovered[sizeof(s_state.cfg.bridge_base)];
     if (!platform_mdns_discover_base_url(discovered, sizeof(discovered))) {
+        return;
+    }
+    if (!host_is_numeric_ip(discovered)) {
+        char current_base[sizeof(s_state.cfg.bridge_base)];
+        lock_state();
+        strncpy(current_base, s_state.cfg.bridge_base, sizeof(current_base) - 1);
+        current_base[sizeof(current_base) - 1] = '\0';
+        unlock_state();
+        LOGW("discovered bridge base %s is not numeric, keeping %s", discovered,
+             current_base[0] ? current_base : "(unset)");
         return;
     }
     lock_state();

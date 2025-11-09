@@ -13,6 +13,7 @@ function startServer() {
   const MDNS_NAME = process.env.MDNS_NAME || 'Roon Knob Bridge';
   const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
   const SERVICE_PORT = parseInt(process.env.ROON_SERVICE_PORT || '9330', 10);
+  const MDNS_BASE = process.env.MDNS_BASE || `http://${require('os').hostname()}:${PORT}`;
 
   const metrics = createMetricsTracker();
   const log = createLogger('Sidecar');
@@ -42,11 +43,11 @@ function startServer() {
   });
 
   const server = app.listen(PORT, () => {
-    log.info(`Listening on ${PORT}`, { service_port: SERVICE_PORT });
+    log.info(`Listening on ${PORT}`, { service_port: SERVICE_PORT, base: MDNS_BASE });
     try {
       advertise(PORT, {
         name: MDNS_NAME,
-        base: `http://${require('os').hostname()}:${PORT}`,
+        base: MDNS_BASE,
         txt: { api: '1' },
       });
     } catch (error) {
@@ -55,7 +56,7 @@ function startServer() {
     metrics.mdns = {
       name: MDNS_NAME,
       port: PORT,
-      base: `http://${require('os').hostname()}:${PORT}`,
+      base: MDNS_BASE,
       advertisedAt: Date.now(),
     };
   });

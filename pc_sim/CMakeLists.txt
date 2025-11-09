@@ -24,6 +24,7 @@ add_executable(roon_knob_pc
   main.c
   ui.c
   components/net_client/curl_client.c
+  storage_file.c
 )
 
 target_include_directories(roon_knob_pc PRIVATE 

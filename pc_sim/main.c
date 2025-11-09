@@ -5,11 +5,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <limits.h>
-#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 
+#include "storage.h"
 #include "ui.h"
 #include "components/net_client/curl_client.h"
 
@@ -23,7 +22,6 @@ static int net_volume_step = 2;
 static volatile bool run_threads = true;
 static char zone_label[64] = "Loading zone";
 static bool zone_resolved = false;
-static char zone_store_path[PATH_MAX];
 
 struct now_playing {
     char line1[MAX_LINE];
@@ -61,8 +59,7 @@ static bool refresh_zone_label(void);
 static void log_msg(const char *fmt, ...);
 static const char *extract_json_string(const char *start, const char *key, char *out, size_t len);
 static void load_zone_from_store(void);
-static void save_zone_to_store(const char *id, const char *name);
-static void init_zone_store_path(void);
+static void persist_zone_to_store(const char *id, const char *name);
 
 static bool fetch_now_playing(struct now_playing *state) {
     if (!zone_resolved) {
@@ -242,7 +239,7 @@ static bool refresh_zone_label(void) {
             ui_set_zone_name(zone_label);
             found = true;
             zone_resolved = true;
-            save_zone_to_store(zone_id, zone_label);
+            persist_zone_to_store(zone_id, zone_label);
             break;
         }
         cursor = after_name;
@@ -253,7 +250,7 @@ static bool refresh_zone_label(void) {
         snprintf(zone_label, sizeof(zone_label), "%s", first_name);
         ui_set_zone_name(zone_label);
         zone_resolved = true;
-        save_zone_to_store(zone_id, zone_label);
+        persist_zone_to_store(zone_id, zone_label);
         log_msg("zone fallback -> id=%s name=%s", zone_id, zone_label);
     } else if (!found) {
         ui_set_zone_name(zone_label);
@@ -264,7 +261,7 @@ static bool refresh_zone_label(void) {
     return zone_resolved;
 }
 int main(int argc, char **argv) {
-    init_zone_store_path();
+    storage_init();
     load_zone_from_store();
     const char *env_base = getenv("ROON_BRIDGE_BASE");
     if (env_base && env_base[0]) {
@@ -318,38 +315,26 @@ static const char *extract_json_string(const char *start, const char *key, char 
     return quote_end + 1;
 }
 
-static void init_zone_store_path(void) {
-    const char *home = getenv("HOME");
-    if (home && strlen(home) < PATH_MAX - 32) {
-        snprintf(zone_store_path, sizeof(zone_store_path), "%s/.roon_knob_zone", home);
-    } else {
-        snprintf(zone_store_path, sizeof(zone_store_path), ".roon_knob_zone");
-    }
-}
-
 static void load_zone_from_store(void) {
-    if (zone_store_path[0] == '\0') return;
-    FILE *f = fopen(zone_store_path, "r");
-    if (!f) return;
-    if (fgets(zone_id, sizeof(zone_id), f)) {
-        size_t len = strcspn(zone_id, "\r\n");
-        zone_id[len] = '\0';
-        if (zone_id[0]) {
-            snprintf(zone_label, sizeof(zone_label), "%s", zone_id);
-            log_msg("loaded stored zone id=%s", zone_id);
+    char stored_id[64];
+    char stored_label[64];
+    if (storage_get("zone_id", stored_id, sizeof(stored_id)) == 0 && stored_id[0]) {
+        snprintf(zone_id, sizeof(zone_id), "%s", stored_id);
+        if (storage_get("zone_name", stored_label, sizeof(stored_label)) == 0 && stored_label[0]) {
+            snprintf(zone_label, sizeof(zone_label), "%s", stored_label);
+        } else {
+            snprintf(zone_label, sizeof(zone_label), "%s", stored_id);
         }
+        log_msg("loaded stored zone id=%s", zone_id);
     }
-    fclose(f);
 }
 
-static void save_zone_to_store(const char *id, const char *name) {
-    if (zone_store_path[0] == '\0' || !id || !id[0]) return;
-    FILE *f = fopen(zone_store_path, "w");
-    if (!f) {
-        log_msg("failed to write zone store %s: %s", zone_store_path, strerror(errno));
-        return;
+static void persist_zone_to_store(const char *id, const char *name) {
+    if (!id || !id[0]) return;
+    if (storage_set("zone_id", id) != 0) {
+        log_msg("failed to persist zone id=%s", id);
     }
-    fprintf(f, "%s\n", id);
-    fclose(f);
-    (void)name;
+    if (name && name[0]) {
+        storage_set("zone_name", name);
+    }
 }

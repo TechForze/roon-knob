@@ -38,9 +38,6 @@ static lv_obj_t *s_progress_bar;
 static lv_obj_t *s_zone_label;
 static lv_obj_t *s_message_overlay;
 static lv_obj_t *s_message_label;
-static lv_obj_t *s_play_overlay;
-static lv_obj_t *s_play_overlay_label;
-static lv_timer_t *s_overlay_timer;
 static lv_timer_t *s_message_timer;
 
 static lv_obj_t *s_zone_picker_container;
@@ -71,8 +68,6 @@ static void build_layout(void);
 static void poll_pending(lv_timer_t *timer);
 static void set_status_dot(bool online);
 static void keyboard_event_cb(lv_event_t *e);
-static void show_play_overlay(bool playing);
-static void hide_play_overlay(lv_timer_t *timer);
 static void show_message_overlay(const char *msg);
 static void hide_message_overlay(lv_timer_t *timer);
 
@@ -183,7 +178,7 @@ static void build_layout(void) {
     lv_label_set_text(s_zone_label, s_zone_name);
     lv_obj_set_style_text_font(s_zone_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(s_zone_label, lv_color_hex(0xaeb6d5), 0);
-    lv_obj_align(s_zone_label, LV_ALIGN_TOP_MID, 0, 12);
+    lv_obj_align(s_zone_label, LV_ALIGN_TOP_MID, 0, 25);  // Lower to avoid circular clip
     lv_obj_add_flag(s_zone_label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_zone_label, keyboard_event_cb, LV_EVENT_CLICKED, (void *)UI_INPUT_MENU);
 
@@ -203,10 +198,10 @@ static void build_layout(void) {
     lv_obj_set_style_text_align(s_label_line2, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align_to(s_label_line2, s_label_line1, LV_ALIGN_OUT_BOTTOM_MID, 0, 8);
 
-    // Progress bar (for track position) - horizontal at bottom
+    // Progress bar (for track position) - horizontal, higher to avoid circle clip
     s_progress_bar = lv_bar_create(dial);
-    lv_obj_set_size(s_progress_bar, SAFE_SIZE - 60, 3);
-    lv_obj_align(s_progress_bar, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_set_size(s_progress_bar, 140, 3);  // Shorter to fit in circle
+    lv_obj_align(s_progress_bar, LV_ALIGN_BOTTOM_MID, 0, -30);  // Higher up
     lv_bar_set_range(s_progress_bar, 0, 1000);
     lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x1a1c24), 0);
     lv_obj_set_style_bg_color(s_progress_bar, lv_color_hex(0x8a6fb0), LV_PART_INDICATOR); // Purple
@@ -232,14 +227,13 @@ static void build_layout(void) {
     lv_obj_set_style_text_font(vol_icon, &lv_font_montserrat_14, 0);
     lv_obj_align(vol_icon, LV_ALIGN_RIGHT_MID, -38, 50);  // Below and left of bar
 
-    // Paused indicator
+    // Play/pause indicator - above progress bar
     s_paused_label = lv_label_create(dial);
     lv_obj_remove_style_all(s_paused_label);
-    lv_label_set_text(s_paused_label, "PAUSED");
+    lv_label_set_text(s_paused_label, LV_SYMBOL_PLAY);  // Show play icon by default
     lv_obj_set_style_text_color(s_paused_label, lv_color_hex(0x7a8fc7), 0);
-    lv_obj_set_style_text_font(s_paused_label, &lv_font_montserrat_12, 0);
-    lv_obj_align(s_paused_label, LV_ALIGN_BOTTOM_MID, 0, -25);
-    lv_obj_add_flag(s_paused_label, LV_OBJ_FLAG_HIDDEN);  // Hidden by default
+    lv_obj_set_style_text_font(s_paused_label, &lv_font_montserrat_20, 0);  // Larger for icon
+    lv_obj_align(s_paused_label, LV_ALIGN_BOTTOM_MID, 0, -50);  // Above progress bar
 
     apply_state(&s_pending);
 }
@@ -258,12 +252,8 @@ static void apply_state(const struct ui_state *state) {
         lv_bar_set_value(s_progress_bar, 0, LV_ANIM_OFF);
     }
 
-    // Show/hide paused indicator
-    if (state->playing) {
-        lv_obj_add_flag(s_paused_label, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_clear_flag(s_paused_label, LV_OBJ_FLAG_HIDDEN);
-    }
+    // Update play/pause indicator icon
+    lv_label_set_text(s_paused_label, state->playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
 
     set_status_dot(state->online);
 }
@@ -306,7 +296,6 @@ static void keyboard_event_cb(lv_event_t *e) {
                 break;
             case LV_KEY_ENTER:
             case ' ':
-                show_play_overlay(!s_pending.playing);
                 s_input_cb(UI_INPUT_PLAY_PAUSE);
                 break;
             case 'z':
@@ -320,9 +309,6 @@ static void keyboard_event_cb(lv_event_t *e) {
     }
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
         ui_input_event_t action = (ui_input_event_t)(intptr_t)lv_event_get_user_data(e);
-        if (action == UI_INPUT_PLAY_PAUSE) {
-            show_play_overlay(!s_pending.playing);
-        }
         s_input_cb(action);
     }
 }
@@ -346,13 +332,13 @@ void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_i
     lv_obj_set_style_bg_opa(s_zone_picker_container, LV_OPA_90, 0);
     lv_obj_center(s_zone_picker_container);
 
-    // Create zone list container
+    // Create zone list container - circular to match display
     lv_obj_t *list_bg = lv_obj_create(s_zone_picker_container);
     lv_obj_remove_style_all(list_bg);
-    lv_obj_set_size(list_bg, SAFE_SIZE - 20, SAFE_SIZE - 40);
+    lv_obj_set_size(list_bg, SAFE_SIZE, SAFE_SIZE);
     lv_obj_set_style_bg_color(list_bg, lv_color_hex(0x1a1c24), 0);
     lv_obj_set_style_bg_opa(list_bg, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(list_bg, 12, 0);
+    lv_obj_set_style_radius(list_bg, SAFE_SIZE / 2, 0);  // Circular
     lv_obj_set_style_border_width(list_bg, 2, 0);
     lv_obj_set_style_border_color(list_bg, lv_color_hex(0x3a3c44), 0);
     lv_obj_center(list_bg);
@@ -362,11 +348,11 @@ void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_i
     lv_label_set_text(title, "Select Zone");
     lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 25);  // Lower to avoid circular clip
 
-    // Zone list
+    // Zone list - narrower and shorter to fit in circle
     s_zone_list = lv_list_create(list_bg);
-    lv_obj_set_size(s_zone_list, SAFE_SIZE - 40, SAFE_SIZE - 80);
+    lv_obj_set_size(s_zone_list, 160, 120);  // Narrower to fit in circular boundary
     lv_obj_align(s_zone_list, LV_ALIGN_CENTER, 0, 10);
     lv_obj_set_style_bg_color(s_zone_list, lv_color_hex(0x11131b), 0);
     lv_obj_set_style_border_width(s_zone_list, 0, 0);
@@ -422,48 +408,6 @@ void ui_zone_picker_scroll(int delta) {
             lv_obj_scroll_to_view(new_btn, LV_ANIM_ON);
         }
     }
-}
-
-static void show_play_overlay(bool playing) {
-    // Clean up existing overlay
-    if (s_play_overlay) {
-        lv_obj_del(s_play_overlay);
-        s_play_overlay = NULL;
-        s_play_overlay_label = NULL;
-    }
-    if (s_overlay_timer) {
-        lv_timer_del(s_overlay_timer);
-        s_overlay_timer = NULL;
-    }
-
-    // Create overlay
-    s_play_overlay = lv_obj_create(lv_screen_active());
-    lv_obj_remove_style_all(s_play_overlay);
-    lv_obj_set_size(s_play_overlay, 80, 80);
-    lv_obj_set_style_bg_color(s_play_overlay, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(s_play_overlay, LV_OPA_80, 0);
-    lv_obj_set_style_radius(s_play_overlay, 12, 0);
-    lv_obj_center(s_play_overlay);
-
-    s_play_overlay_label = lv_label_create(s_play_overlay);
-    lv_obj_set_style_text_font(s_play_overlay_label, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(s_play_overlay_label, lv_color_hex(0xffffff), 0);
-    lv_label_set_text(s_play_overlay_label, playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
-    lv_obj_center(s_play_overlay_label);
-
-    // Auto-hide after 1 second
-    s_overlay_timer = lv_timer_create(hide_play_overlay, 1000, NULL);
-    lv_timer_set_repeat_count(s_overlay_timer, 1);
-}
-
-static void hide_play_overlay(lv_timer_t *timer) {
-    (void)timer;
-    if (s_play_overlay) {
-        lv_obj_del(s_play_overlay);
-        s_play_overlay = NULL;
-        s_play_overlay_label = NULL;
-    }
-    s_overlay_timer = NULL;
 }
 
 static void show_message_overlay(const char *msg) {

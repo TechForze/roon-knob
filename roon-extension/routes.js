@@ -34,7 +34,7 @@ function createRoutes({ bridge, metrics, logger }) {
     }
     recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, knob: extractKnob(req) });
     logger?.debug('now_playing served', { zoneId, ip: req.ip });
-    res.json(data);
+    res.json({ ...data, zones: bridge.getZones() });
   });
 
   router.post('/control', async (req, res) => {

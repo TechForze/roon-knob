@@ -48,6 +48,10 @@ static lv_obj_t *s_message_overlay;
 static lv_obj_t *s_message_label;
 static lv_timer_t *s_message_timer;
 
+static lv_obj_t *s_volume_overlay;
+static lv_obj_t *s_volume_overlay_label;
+static lv_timer_t *s_volume_overlay_timer;
+
 static lv_obj_t *s_zone_picker_container;
 static lv_obj_t *s_zone_list;
 static bool s_zone_picker_visible = false;
@@ -74,9 +78,10 @@ static uint64_t s_last_seek_update_ms = 0;
 static int s_last_seek_position = 0;
 static bool s_is_playing = false;
 
-static inline const lv_font_t *font_small(void) { return LV_FONT_DEFAULT; }
-static inline const lv_font_t *font_normal(void) { return LV_FONT_DEFAULT; }
-static inline const lv_font_t *font_large(void) { return LV_FONT_DEFAULT; }
+// Use larger fonts for better readability on 360x360 display
+static inline const lv_font_t *font_small(void) { return &lv_font_montserrat_16; }
+static inline const lv_font_t *font_normal(void) { return &lv_font_montserrat_20; }
+static inline const lv_font_t *font_large(void) { return &lv_font_montserrat_28; }
 
 static void apply_state(const struct ui_state *state);
 static void build_layout(void);
@@ -87,6 +92,8 @@ static void zone_button_event_cb(lv_event_t *e);
 static void dial_touch_event_cb(lv_event_t *e);
 static void show_message_overlay(const char *msg);
 static void hide_message_overlay(lv_timer_t *timer);
+static void show_volume_overlay(int volume);
+static void hide_volume_overlay(lv_timer_t *timer);
 
 void ui_init(void) {
     ESP_LOGI(UI_TAG, "ui_init: start");
@@ -276,13 +283,37 @@ static void build_layout(void) {
 }
 
 static void apply_state(const struct ui_state *state) {
+    static int s_last_volume = -1;
+
     lv_label_set_text(s_label_line1, state->line1);
     lv_label_set_text(s_label_line2, state->line2);
+
+    // Show volume overlay if volume changed
+    if (state->volume != s_last_volume && s_last_volume >= 0) {
+        show_volume_overlay(state->volume);
+    }
+    s_last_volume = state->volume;
+
     lv_bar_set_value(s_volume_bar, state->volume, LV_ANIM_OFF);
 
-    // Update progress bar
+    // Update progress bar with interpolation
     if (state->length > 0) {
-        int progress = (int)((state->seek_position * 1000) / state->length);
+        int current_seek = state->seek_position;
+
+        // If playing, interpolate based on elapsed time since last update
+        if (s_is_playing && s_last_seek_update_ms > 0) {
+            uint64_t elapsed_ms = platform_millis() - s_last_seek_update_ms;
+            int interpolated_seek = s_last_seek_position + (int)elapsed_ms;
+
+            // Don't interpolate beyond track length
+            if (interpolated_seek < state->length) {
+                current_seek = interpolated_seek;
+            } else {
+                current_seek = state->length;
+            }
+        }
+
+        int progress = (int)((current_seek * 1000) / state->length);
         if (progress > 1000) progress = 1000;
         lv_bar_set_value(s_progress_bar, progress, LV_ANIM_OFF);
     } else {
@@ -360,12 +391,12 @@ void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_i
     lv_label_set_text(title, "Select Zone");
     lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_text_font(title, font_normal(), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 25);  // Lower to avoid circular clip
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);  // Closer to top
 
-    // Zone list - narrower and shorter to fit in circle
+    // Zone list - bigger for better usability
     s_zone_list = lv_list_create(list_bg);
-    lv_obj_set_size(s_zone_list, 160, 120);  // Narrower to fit in circular boundary
-    lv_obj_align(s_zone_list, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_set_size(s_zone_list, 200, 180);  // Larger: 200x180 (was 160x120)
+    lv_obj_align(s_zone_list, LV_ALIGN_CENTER, 0, 15);
     lv_obj_set_style_bg_color(s_zone_list, lv_color_hex(0x000000), 0);  // Pure black
     lv_obj_set_style_border_width(s_zone_list, 0, 0);
 
@@ -373,6 +404,7 @@ void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_i
         lv_obj_t *btn = lv_list_add_button(s_zone_list, NULL, zone_names[i]);
         lv_obj_set_style_bg_color(btn, lv_color_hex(i == selected_idx ? 0x2a5a9a : 0x000000), 0);  // Pure black for unselected
         lv_obj_set_style_text_color(btn, lv_color_hex(0xffffff), 0);
+        lv_obj_set_style_text_font(btn, font_normal(), 0);  // Larger font for better readability
 
         // Add click handler to select zone and store zone index in user data
         lv_obj_set_user_data(btn, (void *)(intptr_t)i);
@@ -510,4 +542,50 @@ static void hide_message_overlay(lv_timer_t *timer) {
         s_message_label = NULL;
     }
     s_message_timer = NULL;
+}
+
+static void show_volume_overlay(int volume) {
+    // Clean up existing volume overlay
+    if (s_volume_overlay) {
+        lv_obj_del(s_volume_overlay);
+        s_volume_overlay = NULL;
+        s_volume_overlay_label = NULL;
+    }
+    if (s_volume_overlay_timer) {
+        lv_timer_del(s_volume_overlay_timer);
+        s_volume_overlay_timer = NULL;
+    }
+
+    // Create overlay
+    s_volume_overlay = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(s_volume_overlay);
+    lv_obj_set_size(s_volume_overlay, 120, 120);
+    lv_obj_set_style_bg_color(s_volume_overlay, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_volume_overlay, LV_OPA_90, 0);
+    lv_obj_set_style_radius(s_volume_overlay, 60, 0);  // Circular
+    lv_obj_set_style_border_width(s_volume_overlay, 2, 0);
+    lv_obj_set_style_border_color(s_volume_overlay, lv_color_hex(0x5a8fc7), 0);  // Blue border
+    lv_obj_center(s_volume_overlay);
+
+    s_volume_overlay_label = lv_label_create(s_volume_overlay);
+    lv_obj_set_style_text_font(s_volume_overlay_label, font_large(), 0);
+    lv_obj_set_style_text_color(s_volume_overlay_label, lv_color_hex(0xffffff), 0);
+    char vol_text[16];
+    snprintf(vol_text, sizeof(vol_text), "%d%%", volume);
+    lv_label_set_text(s_volume_overlay_label, vol_text);
+    lv_obj_center(s_volume_overlay_label);
+
+    // Auto-hide after 1.5 seconds
+    s_volume_overlay_timer = lv_timer_create(hide_volume_overlay, 1500, NULL);
+    lv_timer_set_repeat_count(s_volume_overlay_timer, 1);
+}
+
+static void hide_volume_overlay(lv_timer_t *timer) {
+    (void)timer;
+    if (s_volume_overlay) {
+        lv_obj_del(s_volume_overlay);
+        s_volume_overlay = NULL;
+        s_volume_overlay_label = NULL;
+    }
+    s_volume_overlay_timer = NULL;
 }

@@ -34,7 +34,8 @@ function createRoutes({ bridge, metrics, logger }) {
     }
     recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, knob: extractKnob(req) });
     logger?.debug('now_playing served', { zoneId, ip: req.ip });
-    res.json({ ...data, zones: bridge.getZones() });
+    const image_url = `/now_playing/image?zone_id=${encodeURIComponent(zoneId)}`;
+    res.json({ ...data, image_url, zones: bridge.getZones() });
   });
 
   router.get('/now_playing/image', async (req, res) => {

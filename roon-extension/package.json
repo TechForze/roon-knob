@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "dev": "LOG_LEVEL=debug node app.js"
   },
   "dependencies": {
     "node-roon-api": "github:roonlabs/node-roon-api",

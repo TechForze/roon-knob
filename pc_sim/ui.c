@@ -38,6 +38,11 @@ static lv_obj_t *s_play_button;
 static lv_obj_t *s_vol_down_button;
 static lv_obj_t *s_vol_up_button;
 
+static lv_obj_t *s_zone_picker_container;
+static lv_obj_t *s_zone_list;
+static bool s_zone_picker_visible = false;
+static int s_zone_picker_selected = 0;
+
 static os_mutex_t s_state_lock = OS_MUTEX_INITIALIZER;
 static struct ui_state s_pending = {
     .line1 = "Waiting for bridge",
@@ -275,4 +280,96 @@ static void keyboard_event_cb(lv_event_t *e) {
 void ui_loop_iter(void) {
     lv_tick_inc(5);
     lv_timer_handler();
+}
+
+void ui_show_zone_picker(const char **zone_names, int zone_count, int selected_idx) {
+    if (s_zone_picker_visible) return;
+
+    s_zone_picker_selected = selected_idx;
+    s_zone_picker_visible = true;
+
+    // Create container overlay
+    s_zone_picker_container = lv_obj_create(lv_screen_active());
+    lv_obj_remove_style_all(s_zone_picker_container);
+    lv_obj_set_size(s_zone_picker_container, SCREEN_SIZE, SCREEN_SIZE);
+    lv_obj_set_style_bg_color(s_zone_picker_container, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_zone_picker_container, LV_OPA_90, 0);
+    lv_obj_center(s_zone_picker_container);
+
+    // Create zone list container
+    lv_obj_t *list_bg = lv_obj_create(s_zone_picker_container);
+    lv_obj_remove_style_all(list_bg);
+    lv_obj_set_size(list_bg, SAFE_SIZE - 20, SAFE_SIZE - 40);
+    lv_obj_set_style_bg_color(list_bg, lv_color_hex(0x1a1c24), 0);
+    lv_obj_set_style_bg_opa(list_bg, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(list_bg, 12, 0);
+    lv_obj_set_style_border_width(list_bg, 2, 0);
+    lv_obj_set_style_border_color(list_bg, lv_color_hex(0x3a3c44), 0);
+    lv_obj_center(list_bg);
+
+    // Title
+    lv_obj_t *title = lv_label_create(list_bg);
+    lv_label_set_text(title, "Select Zone");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+
+    // Zone list
+    s_zone_list = lv_list_create(list_bg);
+    lv_obj_set_size(s_zone_list, SAFE_SIZE - 40, SAFE_SIZE - 80);
+    lv_obj_align(s_zone_list, LV_ALIGN_CENTER, 0, 10);
+    lv_obj_set_style_bg_color(s_zone_list, lv_color_hex(0x11131b), 0);
+    lv_obj_set_style_border_width(s_zone_list, 0, 0);
+
+    for (int i = 0; i < zone_count; i++) {
+        lv_obj_t *btn = lv_list_add_button(s_zone_list, NULL, zone_names[i]);
+        lv_obj_set_style_bg_color(btn, lv_color_hex(i == selected_idx ? 0x2a5a9a : 0x11131b), 0);
+        lv_obj_set_style_text_color(btn, lv_color_hex(0xffffff), 0);
+    }
+}
+
+void ui_hide_zone_picker(void) {
+    if (!s_zone_picker_visible) return;
+
+    if (s_zone_picker_container) {
+        lv_obj_del(s_zone_picker_container);
+        s_zone_picker_container = NULL;
+        s_zone_list = NULL;
+    }
+    s_zone_picker_visible = false;
+}
+
+bool ui_is_zone_picker_visible(void) {
+    return s_zone_picker_visible;
+}
+
+int ui_zone_picker_get_selected(void) {
+    return s_zone_picker_selected;
+}
+
+void ui_zone_picker_scroll(int delta) {
+    if (!s_zone_picker_visible || !s_zone_list) return;
+
+    uint32_t child_count = lv_obj_get_child_count(s_zone_list);
+    if (child_count == 0) return;
+
+    int new_selected = s_zone_picker_selected + delta;
+    if (new_selected < 0) new_selected = 0;
+    if (new_selected >= (int)child_count) new_selected = child_count - 1;
+
+    if (new_selected != s_zone_picker_selected) {
+        // Update old button
+        lv_obj_t *old_btn = lv_obj_get_child(s_zone_list, s_zone_picker_selected);
+        if (old_btn) {
+            lv_obj_set_style_bg_color(old_btn, lv_color_hex(0x11131b), 0);
+        }
+
+        // Update new button
+        s_zone_picker_selected = new_selected;
+        lv_obj_t *new_btn = lv_obj_get_child(s_zone_list, s_zone_picker_selected);
+        if (new_btn) {
+            lv_obj_set_style_bg_color(new_btn, lv_color_hex(0x2a5a9a), 0);
+            lv_obj_scroll_to_view(new_btn, LV_ANIM_ON);
+        }
+    }
 }

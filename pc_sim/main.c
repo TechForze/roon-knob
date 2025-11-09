@@ -161,43 +161,90 @@ static bool send_control_json(const char *json) {
 }
 
 static void handle_input(ui_input_event_t ev) {
-    switch (ev) {
-        case UI_INPUT_VOL_DOWN: {
-            int step = net_volume_step > 0 ? net_volume_step : 2;
-            char body[256];
-            snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"vol_rel\",\"value\":%d}", zone_id, -step);
-            if (!send_control_json(body)) {
-                ui_set_message("Volume change failed");
+    bool picker_visible = ui_is_zone_picker_visible();
+
+    if (picker_visible) {
+        // Zone picker is open - handle navigation
+        switch (ev) {
+            case UI_INPUT_VOL_DOWN:
+                ui_zone_picker_scroll(1);
+                break;
+            case UI_INPUT_VOL_UP:
+                ui_zone_picker_scroll(-1);
+                break;
+            case UI_INPUT_PLAY_PAUSE: {
+                // Select zone
+                int selected = ui_zone_picker_get_selected();
+                if (selected >= 0 && selected < cached_zone_count) {
+                    snprintf(zone_id, sizeof(zone_id), "%s", cached_zones[selected].zone_id);
+                    snprintf(zone_label, sizeof(zone_label), "%s", cached_zones[selected].zone_name);
+                    ui_set_zone_name(zone_label);
+                    persist_zone_to_store(zone_id, zone_label);
+                    zone_resolved = true;
+                    log_msg("selected zone: %s (%s)", zone_label, zone_id);
+                }
+                ui_hide_zone_picker();
+                break;
             }
-            break;
+            case UI_INPUT_MENU:
+                // Close picker without selecting
+                ui_hide_zone_picker();
+                break;
+            default:
+                break;
         }
-        case UI_INPUT_VOL_UP: {
-            int step = net_volume_step > 0 ? net_volume_step : 2;
-            char body[256];
-            snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"vol_rel\",\"value\":%d}", zone_id, step);
-            if (!send_control_json(body)) {
-                ui_set_message("Volume change failed");
+    } else {
+        // Normal mode - handle playback controls
+        switch (ev) {
+            case UI_INPUT_VOL_DOWN: {
+                int step = net_volume_step > 0 ? net_volume_step : 2;
+                char body[256];
+                snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"vol_rel\",\"value\":%d}", zone_id, -step);
+                if (!send_control_json(body)) {
+                    ui_set_message("Volume change failed");
+                }
+                break;
             }
-            break;
-        }
-        case UI_INPUT_PLAY_PAUSE: {
-            char body[256];
-            snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"play_pause\"}", zone_id);
-            if (!send_control_json(body)) {
-                ui_set_message("Play/pause failed");
+            case UI_INPUT_VOL_UP: {
+                int step = net_volume_step > 0 ? net_volume_step : 2;
+                char body[256];
+                snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"vol_rel\",\"value\":%d}", zone_id, step);
+                if (!send_control_json(body)) {
+                    ui_set_message("Volume change failed");
+                }
+                break;
             }
-            break;
-        }
-        case UI_INPUT_MENU: {
-            log_msg("zone picker: %d zones available", cached_zone_count);
-            for (int i = 0; i < cached_zone_count; i++) {
-                log_msg("  [%d] %s (%s)", i, cached_zones[i].zone_name, cached_zones[i].zone_id);
+            case UI_INPUT_PLAY_PAUSE: {
+                char body[256];
+                snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"play_pause\"}", zone_id);
+                if (!send_control_json(body)) {
+                    ui_set_message("Play/pause failed");
+                }
+                break;
             }
-            ui_set_message("Zone picker TODO");
-            break;
+            case UI_INPUT_MENU: {
+                // Open zone picker
+                if (cached_zone_count > 0) {
+                    const char *zone_names[MAX_ZONES];
+                    for (int i = 0; i < cached_zone_count; i++) {
+                        zone_names[i] = cached_zones[i].zone_name;
+                    }
+                    int current_idx = 0;
+                    for (int i = 0; i < cached_zone_count; i++) {
+                        if (strcmp(cached_zones[i].zone_id, zone_id) == 0) {
+                            current_idx = i;
+                            break;
+                        }
+                    }
+                    ui_show_zone_picker(zone_names, cached_zone_count, current_idx);
+                } else {
+                    ui_set_message("No zones available");
+                }
+                break;
+            }
+            default:
+                break;
         }
-        default:
-            break;
     }
 }
 

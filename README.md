@@ -32,9 +32,14 @@ roon-knob/
 
 1. Install the simulator dependencies (`cmake`, `ninja`, `sdl2`, `curl`) with `./scripts/setup_mac.sh`.
 2. Build and run the PC simulator: `./scripts/run_pc.sh` (expects a bridge at `http://127.0.0.1:8088` by default). The simulator uses LVGL 9 to render a 240×240 round UI (SDL2):
-   - ↑/↓ or ←/→: Change volume
-   - Space or Enter: Play/pause
-   - Z or M: Zone picker (TODO)
+   - **Main screen:**
+     - ↑/↓ or ←/→: Volume control (rotary knob)
+     - Space/Enter: Play/pause (touch)
+     - Z or M: Open zone picker
+   - **Zone picker:**
+     - ↑/↓: Scroll through zones
+     - Space/Enter: Select zone
+     - Z or M: Close without selecting
    - Status dot shows connection health
    Use `ROON_BRIDGE_BASE`/`ZONE_ID` env vars to target specific bridges/zones.
 3. Flash the ESP32-S3 target: set `IDF_PATH` and run `./scripts/build_flash_idf.sh /dev/tty.usbmodemXYZ`.

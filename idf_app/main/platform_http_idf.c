@@ -34,10 +34,15 @@ static esp_err_t event_handler(esp_http_client_event_handle_t evt) {
 }
 
 static int http_perform(const char *url, const char *body, const char *content_type, char **out, size_t *out_len) {
+    ESP_LOGI(TAG, "HTTP %s: %s", body ? "POST" : "GET", url);
+
     esp_http_client_config_t config = {
         .url = url,
         .method = body ? HTTP_METHOD_POST : HTTP_METHOD_GET,
         .event_handler = event_handler,
+        .timeout_ms = 5000,
+        .keep_alive_enable = false,
+        .disable_auto_redirect = false,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) {
@@ -56,9 +61,13 @@ static int http_perform(const char *url, const char *body, const char *content_t
     esp_err_t err = esp_http_client_perform(client);
     int ret = 0;
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "http failed: %s", esp_err_to_name(err));
+        int status_code = esp_http_client_get_status_code(client);
+        ESP_LOGE(TAG, "HTTP failed - error: %s, status: %d", esp_err_to_name(err), status_code);
         ret = -1;
     } else {
+        int status_code = esp_http_client_get_status_code(client);
+        int content_len = esp_http_client_get_content_length(client);
+        ESP_LOGI(TAG, "HTTP OK - status: %d, content_len: %d", status_code, content_len);
         *out = buf.data;
         if (out_len) {
             *out_len = buf.len;

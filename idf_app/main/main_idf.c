@@ -2,6 +2,7 @@
 #include "platform/platform_input.h"
 #include "platform/platform_time.h"
 #include "platform_display_idf.h"
+#include "roon_client.h"
 #include "ui.h"
 #include "ui_network.h"
 #include "wifi_manager.h"
@@ -17,7 +18,16 @@
 static const char *TAG = "main";
 
 void rk_net_evt_cb(rk_net_evt_t evt, const char *ip_opt) {
+    // Notify UI about network events
     ui_network_on_event(evt, ip_opt);
+
+    // Notify roon_client when network is ready
+    if (evt == RK_NET_EVT_GOT_IP) {
+        ESP_LOGI(TAG, "WiFi connected with IP: %s - enabling HTTP", ip_opt ? ip_opt : "unknown");
+        roon_client_set_network_ready(true);
+    } else if (evt == RK_NET_EVT_FAIL) {
+        roon_client_set_network_ready(false);
+    }
 }
 
 static void ui_loop_task(void *arg) {

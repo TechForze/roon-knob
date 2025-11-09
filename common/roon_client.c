@@ -49,6 +49,7 @@ static os_mutex_t s_state_lock = OS_MUTEX_INITIALIZER;
 static bool s_running;
 static bool s_trigger_poll;
 static bool s_last_net_ok;
+static bool s_network_ready;
 
 static void lock_state(void) {
     os_mutex_lock(&s_state_lock);
@@ -449,6 +450,12 @@ static void roon_poll_thread(void *arg) {
     struct now_playing_state state;
     default_now_playing(&state);
     while (s_running) {
+        // Skip HTTP requests if network is not ready yet
+        if (!s_network_ready) {
+            wait_for_poll_interval();
+            continue;
+        }
+
         maybe_update_bridge_base();
         if (!s_state.zone_resolved) {
             refresh_zone_label(true);
@@ -575,5 +582,15 @@ void roon_client_handle_input(ui_input_event_t event) {
         break;
     default:
         break;
+    }
+}
+
+void roon_client_set_network_ready(bool ready) {
+    s_network_ready = ready;
+    if (ready) {
+        LOGI("Network ready - HTTP requests enabled");
+        s_trigger_poll = true;  // Trigger immediate poll when network becomes ready
+    } else {
+        LOGI("Network not ready - HTTP requests disabled");
     }
 }

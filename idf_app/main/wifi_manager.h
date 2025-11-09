@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "config_store.h"
+#include "rk_cfg.h"
 
 typedef enum { RK_NET_EVT_CONNECTING, RK_NET_EVT_GOT_IP, RK_NET_EVT_FAIL } rk_net_evt_t;
 

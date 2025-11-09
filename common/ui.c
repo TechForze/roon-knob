@@ -1,16 +1,11 @@
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "os_mutex.h"
-
+#include "platform/platform_task.h"
 #include "lvgl.h"
-#include "src/drivers/sdl/lv_sdl_window.h"
-#include "src/drivers/sdl/lv_sdl_mouse.h"
-#include "src/drivers/sdl/lv_sdl_keyboard.h"
-
 #include "ui.h"
 
 #define SCREEN_SIZE 240
@@ -26,9 +21,6 @@ struct ui_state {
     int length;
 };
 
-#include <time.h>
-
-static lv_display_t *s_display;
 static lv_obj_t *s_label_line1;
 static lv_obj_t *s_label_line2;
 static lv_obj_t *s_paused_label;
@@ -58,8 +50,6 @@ static struct ui_state s_pending = {
 static bool s_dirty = true;
 static char s_pending_message[128] = "";
 static bool s_message_dirty = false;
-static lv_indev_t *s_keyboard;
-static lv_group_t *s_key_group;
 static ui_input_cb_t s_input_cb;
 static char s_zone_name[64] = "Zone";
 
@@ -67,30 +57,13 @@ static void apply_state(const struct ui_state *state);
 static void build_layout(void);
 static void poll_pending(lv_timer_t *timer);
 static void set_status_dot(bool online);
-static void keyboard_event_cb(lv_event_t *e);
+static void zone_label_event_cb(lv_event_t *e);
 static void show_message_overlay(const char *msg);
 static void hide_message_overlay(lv_timer_t *timer);
 
 void ui_init(void) {
-    lv_init();
-
-    s_display = lv_sdl_window_create(SCREEN_SIZE, SCREEN_SIZE);
-    lv_display_set_default(s_display);
-    lv_sdl_mouse_create();
-
     build_layout();
     lv_timer_create(poll_pending, 60, NULL);
-
-    s_keyboard = lv_sdl_keyboard_create();
-    if(s_keyboard) {
-        lv_obj_t *screen = lv_screen_active();
-        s_key_group = lv_group_create();
-        lv_group_add_obj(s_key_group, screen);
-        lv_group_focus_obj(screen);
-        lv_indev_set_group(s_keyboard, s_key_group);
-        lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICK_FOCUSABLE);
-        lv_obj_add_event_cb(screen, keyboard_event_cb, LV_EVENT_KEY, NULL);
-    }
 
     lv_label_set_text(s_zone_label, s_zone_name);
     lv_label_set_text(s_label_line1, s_pending.line1);
@@ -180,7 +153,7 @@ static void build_layout(void) {
     lv_obj_set_style_text_color(s_zone_label, lv_color_hex(0xaeb6d5), 0);
     lv_obj_align(s_zone_label, LV_ALIGN_TOP_MID, 0, 25);  // Lower to avoid circular clip
     lv_obj_add_flag(s_zone_label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_zone_label, keyboard_event_cb, LV_EVENT_CLICKED, (void *)UI_INPUT_MENU);
+    lv_obj_add_event_cb(s_zone_label, zone_label_event_cb, LV_EVENT_CLICKED, NULL);
 
     s_label_line1 = lv_label_create(dial);
     lv_obj_set_width(s_label_line1, SAFE_SIZE - 32);
@@ -267,6 +240,12 @@ void ui_set_input_handler(ui_input_cb_t handler) {
     s_input_cb = handler;
 }
 
+void ui_dispatch_input(ui_input_event_t ev) {
+    if (s_input_cb) {
+        s_input_cb(ev);
+    }
+}
+
 void ui_set_zone_name(const char *zone_name) {
     if (!zone_name || !s_zone_label) return;
     lv_label_set_text(s_zone_label, zone_name);
@@ -281,40 +260,9 @@ void ui_set_message(const char *msg) {
     os_mutex_unlock(&s_state_lock);
 }
 
-static void keyboard_event_cb(lv_event_t *e) {
-    if (!s_input_cb) return;
-    if (lv_event_get_code(e) == LV_EVENT_KEY) {
-        uint32_t key = lv_event_get_key(e);
-        switch(key) {
-            case LV_KEY_UP:
-            case LV_KEY_RIGHT:
-                s_input_cb(UI_INPUT_VOL_UP);
-                break;
-            case LV_KEY_DOWN:
-            case LV_KEY_LEFT:
-                s_input_cb(UI_INPUT_VOL_DOWN);
-                break;
-            case LV_KEY_ENTER:
-            case ' ':
-                s_input_cb(UI_INPUT_PLAY_PAUSE);
-                break;
-            case 'z':
-            case 'm':
-                s_input_cb(UI_INPUT_MENU);
-                break;
-            default:
-                break;
-        }
-        return;
-    }
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        ui_input_event_t action = (ui_input_event_t)(intptr_t)lv_event_get_user_data(e);
-        s_input_cb(action);
-    }
-}
-
 void ui_loop_iter(void) {
     lv_tick_inc(5);
+    platform_task_run_pending();
     lv_timer_handler();
 }
 
@@ -408,6 +356,11 @@ void ui_zone_picker_scroll(int delta) {
             lv_obj_scroll_to_view(new_btn, LV_ANIM_ON);
         }
     }
+}
+
+static void zone_label_event_cb(lv_event_t *e) {
+    (void)e;
+    ui_dispatch_input(UI_INPUT_MENU);
 }
 
 static void show_message_overlay(const char *msg) {

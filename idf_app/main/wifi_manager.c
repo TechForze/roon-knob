@@ -10,6 +10,8 @@
 
 #include "sdkconfig.h"
 
+#include "platform/platform_storage.h"
+
 static const char *TAG = "wifi_mgr";
 static const uint32_t s_backoff_ms[] = {500, 1000, 2000, 4000, 8000, 16000, 30000};
 
@@ -56,14 +58,14 @@ static void apply_full_defaults(rk_cfg_t *cfg) {
 
 static void ensure_cfg_loaded(void) {
     rk_cfg_t cfg = {0};
-    bool has_wifi = rk_cfg_load(&cfg);
+    bool has_wifi = platform_storage_load(&cfg);
     bool blob_exists = have_blob(&cfg);
     if (!blob_exists) {
         apply_full_defaults(&cfg);
-        rk_cfg_save(&cfg);
+        platform_storage_save(&cfg);
     } else if (!has_wifi) {
         apply_wifi_defaults(&cfg);
-        rk_cfg_save(&cfg);
+        platform_storage_save(&cfg);
     }
     s_cfg = cfg;
     s_cfg_loaded = true;
@@ -208,7 +210,7 @@ void wifi_mgr_reconnect(const rk_cfg_t *cfg) {
     }
     if (!s_started) {
         ESP_LOGW(TAG, "wifi_mgr_reconnect before start");
-        if (!rk_cfg_save(cfg)) {
+        if (!platform_storage_save(cfg)) {
             ESP_LOGW(TAG, "failed to persist cfg");
         }
         s_cfg = *cfg;
@@ -217,7 +219,7 @@ void wifi_mgr_reconnect(const rk_cfg_t *cfg) {
     }
     s_cfg = *cfg;
     s_cfg_loaded = true;
-    if (!rk_cfg_save(&s_cfg)) {
+    if (!platform_storage_save(&s_cfg)) {
         ESP_LOGW(TAG, "failed to persist cfg");
     }
     reset_backoff();
@@ -225,7 +227,7 @@ void wifi_mgr_reconnect(const rk_cfg_t *cfg) {
 }
 
 void wifi_mgr_forget_wifi(void) {
-    rk_cfg_reset_wifi_only();
+    platform_storage_reset_wifi_only(&s_cfg);
     s_cfg_loaded = false;
     ensure_cfg_loaded();
     reset_backoff();

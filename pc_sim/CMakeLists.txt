@@ -20,21 +20,33 @@ find_package(CURL REQUIRED)
 find_package(SDL2 REQUIRED)
 find_package(Threads REQUIRED)
 
-add_executable(roon_knob_pc
-  main.c
-  ui.c
-  components/net_client/curl_client.c
-  storage_file.c
+set(COMMON_SOURCES
+  ../common/app_main.c
+  ../common/roon_client.c
+  ../common/ui.c
+  ../common/platform/platform_log.c
+  ../common/platform/platform_time.c
+  ../common/platform/platform_task.c
 )
 
-target_include_directories(roon_knob_pc PRIVATE 
+add_executable(roon_knob_pc
+  main_pc.c
+  ${COMMON_SOURCES}
+  platform_http_pc.c
+  platform_storage_pc.c
+  platform_mdns_pc.c
+  platform_input_pc.c
+  components/net_client/curl_client.c
+)
+
+target_include_directories(roon_knob_pc PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/components/net_client
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
   ${CMAKE_CURRENT_SOURCE_DIR}/../include
-  ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_compile_definitions(roon_knob_pc PRIVATE LV_CONF_INCLUDE_SIMPLE)
+target_compile_definitions(roon_knob_pc PRIVATE TARGET_PC=1 LV_CONF_INCLUDE_SIMPLE)
 
 target_link_libraries(lvgl PUBLIC SDL2::SDL2)
 target_include_directories(lvgl PUBLIC ${SDL2_INCLUDE_DIRS})

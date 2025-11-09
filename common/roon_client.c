@@ -1,0 +1,580 @@
+#include "roon_client.h"
+
+#include "platform/platform_http.h"
+#include "platform/platform_log.h"
+#include "platform/platform_mdns.h"
+#include "platform/platform_storage.h"
+#include "platform/platform_task.h"
+#include "platform/platform_time.h"
+#include "os_mutex.h"
+#include "ui.h"
+
+#include <stddef.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_LINE 128
+#define MAX_ZONE_NAME 64
+#define MAX_ZONES 32
+#define POLL_DELAY_MS 1000
+
+struct now_playing_state {
+    char line1[MAX_LINE];
+    char line2[MAX_LINE];
+    bool is_playing;
+    int volume;
+    int volume_step;
+    int seek_position;
+    int length;
+};
+
+struct zone_entry {
+    char id[MAX_ZONE_NAME];
+    char name[MAX_ZONE_NAME];
+};
+
+struct roon_state {
+    rk_cfg_t cfg;
+    struct zone_entry zones[MAX_ZONES];
+    int zone_count;
+    char zone_label[MAX_ZONE_NAME];
+    bool zone_resolved;
+    bool net_connected;
+};
+
+static struct roon_state s_state;
+static os_mutex_t s_state_lock = OS_MUTEX_INITIALIZER;
+static bool s_running;
+static bool s_trigger_poll;
+static bool s_last_net_ok;
+
+static void lock_state(void) {
+    os_mutex_lock(&s_state_lock);
+}
+
+static void unlock_state(void) {
+    os_mutex_unlock(&s_state_lock);
+}
+
+static bool fetch_now_playing(struct now_playing_state *state);
+static bool refresh_zone_label(bool prefer_zone_id);
+static void parse_zones_from_response(const char *resp);
+static const char *extract_json_string(const char *start, const char *key, char *out, size_t len);
+static bool send_control_json(const char *json);
+static void default_now_playing(struct now_playing_state *state);
+static void wait_for_poll_interval(void);
+static void *roon_poll_thread(void *arg);
+static void maybe_update_bridge_base(void);
+static void post_ui_update(const struct now_playing_state *state);
+static void post_ui_status(bool online);
+static void post_ui_zone_name(const char *name);
+static void post_ui_message(const char *msg);
+static void post_ui_message_copy(char *msg_copy);
+static void post_ui_status_copy(bool *status_copy);
+static void post_ui_zone_name_copy(char *name_copy);
+
+static void ui_update_cb(void *arg) {
+    struct now_playing_state *state = arg;
+    if (!state) {
+        return;
+    }
+    ui_update(state->line1, state->line2, state->is_playing, state->volume, state->seek_position, state->length);
+    free(state);
+}
+
+static void ui_status_cb(void *arg) {
+    bool *online = arg;
+    if (!online) {
+        return;
+    }
+    ui_set_status(*online);
+    free(online);
+}
+
+static void ui_message_cb(void *arg) {
+    char *msg = arg;
+    if (!msg) {
+        return;
+    }
+    ui_set_message(msg);
+    free(msg);
+}
+
+static void ui_zone_name_cb(void *arg) {
+    char *name = arg;
+    if (!name) {
+        return;
+    }
+    ui_set_zone_name(name);
+    free(name);
+}
+
+static void default_now_playing(struct now_playing_state *state) {
+    if (!state) {
+        return;
+    }
+    snprintf(state->line1, sizeof(state->line1), "Waiting for data");
+    state->line2[0] = '\0';
+    state->is_playing = false;
+    state->volume = 0;
+    state->volume_step = 0;
+    state->seek_position = 0;
+    state->length = 0;
+}
+
+static void post_ui_update(const struct now_playing_state *state) {
+    struct now_playing_state *copy = malloc(sizeof(*copy));
+    if (!copy || !state) {
+        free(copy);
+        return;
+    }
+    *copy = *state;
+    platform_task_post_to_ui(ui_update_cb, copy);
+}
+
+static void post_ui_status_copy(bool *status_copy) {
+    platform_task_post_to_ui(ui_status_cb, status_copy);
+}
+
+static void post_ui_status(bool online) {
+    bool *copy = malloc(sizeof(*copy));
+    if (!copy) {
+        return;
+    }
+    *copy = online;
+    post_ui_status_copy(copy);
+}
+
+static void post_ui_message_copy(char *msg_copy) {
+    platform_task_post_to_ui(ui_message_cb, msg_copy);
+}
+
+static void post_ui_message(const char *msg) {
+    if (!msg) {
+        return;
+    }
+    char *copy = strdup(msg);
+    if (!copy) {
+        return;
+    }
+    post_ui_message_copy(copy);
+}
+
+static void post_ui_zone_name_copy(char *name_copy) {
+    platform_task_post_to_ui(ui_zone_name_cb, name_copy);
+}
+
+static void post_ui_zone_name(const char *name) {
+    if (!name) {
+        return;
+    }
+    char *copy = strdup(name);
+    if (!copy) {
+        return;
+    }
+    post_ui_zone_name_copy(copy);
+}
+
+static void wait_for_poll_interval(void) {
+    uint64_t start = platform_millis();
+    while (s_running) {
+        if (s_trigger_poll) {
+            s_trigger_poll = false;
+            break;
+        }
+        if (platform_millis() - start >= POLL_DELAY_MS) {
+            break;
+        }
+        platform_sleep_ms(50);
+    }
+}
+
+static void maybe_update_bridge_base(void) {
+    char discovered[sizeof(s_state.cfg.bridge_base)];
+    if (!platform_mdns_discover_base_url(discovered, sizeof(discovered))) {
+        return;
+    }
+    lock_state();
+    if (strcmp(s_state.cfg.bridge_base, discovered) != 0) {
+        strncpy(s_state.cfg.bridge_base, discovered, sizeof(s_state.cfg.bridge_base) - 1);
+        s_state.cfg.bridge_base[sizeof(s_state.cfg.bridge_base) - 1] = '\0';
+        platform_storage_save(&s_state.cfg);
+        LOGI("bridge base updated to %s", s_state.cfg.bridge_base);
+    }
+    unlock_state();
+}
+
+static bool fetch_now_playing(struct now_playing_state *state) {
+    if (!state) {
+        return false;
+    }
+    lock_state();
+    char bridge_base[sizeof(s_state.cfg.bridge_base)];
+    char zone_id[sizeof(s_state.cfg.zone_id)];
+    strncpy(bridge_base, s_state.cfg.bridge_base, sizeof(bridge_base) - 1);
+    strncpy(zone_id, s_state.cfg.zone_id, sizeof(zone_id) - 1);
+    unlock_state();
+
+    if (bridge_base[0] == '\0' || zone_id[0] == '\0') {
+        return false;
+    }
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/now_playing?zone_id=%s", bridge_base, zone_id);
+
+    char *resp = NULL;
+    size_t resp_len = 0;
+    int ret = platform_http_get(url, &resp, &resp_len);
+    if (ret != 0 || !resp) {
+        platform_http_free(resp);
+        return false;
+    }
+
+    if (strstr(resp, "\"error\"") || resp_len == 0) {
+        platform_http_free(resp);
+        return false;
+    }
+
+    const char *line1 = strstr(resp, "\"line1\"");
+    if (line1) {
+        extract_json_string(line1, "\"line1\"", state->line1, sizeof(state->line1));
+    }
+    const char *line2 = strstr(resp, "\"line2\"");
+    if (line2) {
+        extract_json_string(line2, "\"line2\"", state->line2, sizeof(state->line2));
+    }
+    state->is_playing = strstr(resp, "\"is_playing\":true") != NULL;
+
+    const char *vol_key = strstr(resp, "\"volume\"");
+    if (vol_key) {
+        const char *colon = strchr(vol_key, ':');
+        if (colon) {
+            state->volume = atoi(colon + 1);
+        }
+    }
+
+    state->volume_step = state->volume_step > 0 ? state->volume_step : 2;
+    const char *step_key = strstr(resp, "\"volume_step\"");
+    if (step_key) {
+        const char *colon = strchr(step_key, ':');
+        if (colon) {
+            int parsed = atoi(colon + 1);
+            if (parsed > 0) {
+                state->volume_step = parsed;
+            }
+        }
+    }
+
+    const char *seek_key = strstr(resp, "\"seek_position\"");
+    if (seek_key) {
+        const char *colon = strchr(seek_key, ':');
+        if (colon) {
+            state->seek_position = atoi(colon + 1);
+        }
+    }
+    const char *length_key = strstr(resp, "\"length\"");
+    if (length_key) {
+        const char *colon = strchr(length_key, ':');
+        if (colon) {
+            state->length = atoi(colon + 1);
+        }
+    }
+
+    parse_zones_from_response(resp);
+    platform_http_free(resp);
+    return true;
+}
+
+static bool refresh_zone_label(bool prefer_zone_id) {
+    lock_state();
+    char bridge_base[sizeof(s_state.cfg.bridge_base)];
+    strncpy(bridge_base, s_state.cfg.bridge_base, sizeof(bridge_base) - 1);
+    unlock_state();
+    if (bridge_base[0] == '\0') {
+        return false;
+    }
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/zones", bridge_base);
+
+    char *resp = NULL;
+    size_t resp_len = 0;
+    bool success = false;
+
+    if (platform_http_get(url, &resp, &resp_len) != 0 || !resp) {
+        platform_http_free(resp);
+        return false;
+    }
+
+    parse_zones_from_response(resp);
+
+    char zone_label_copy[MAX_ZONE_NAME] = {0};
+    lock_state();
+    if (s_state.zone_count > 0) {
+        bool found = false;
+        bool should_sync = false;
+        for (int i = 0; i < s_state.zone_count; ++i) {
+            struct zone_entry *entry = &s_state.zones[i];
+            if (prefer_zone_id && s_state.cfg.zone_id[0] && strcmp(entry->id, s_state.cfg.zone_id) == 0) {
+                strncpy(s_state.zone_label, entry->name, sizeof(s_state.zone_label) - 1);
+                s_state.zone_label[sizeof(s_state.zone_label) - 1] = '\0';
+                strncpy(zone_label_copy, s_state.zone_label, sizeof(zone_label_copy) - 1);
+                found = true;
+                should_sync = true;
+                break;
+            }
+            if (!s_state.cfg.zone_id[0]) {
+                strncpy(s_state.cfg.zone_id, entry->id, sizeof(s_state.cfg.zone_id) - 1);
+                s_state.cfg.zone_id[sizeof(s_state.cfg.zone_id) - 1] = '\0';
+                strncpy(s_state.zone_label, entry->name, sizeof(s_state.zone_label) - 1);
+                s_state.zone_label[sizeof(s_state.zone_label) - 1] = '\0';
+                strncpy(zone_label_copy, s_state.zone_label, sizeof(zone_label_copy) - 1);
+                found = true;
+                should_sync = true;
+                break;
+            }
+        }
+        if (!found && s_state.zone_count > 0) {
+            struct zone_entry *entry = &s_state.zones[0];
+            strncpy(s_state.cfg.zone_id, entry->id, sizeof(s_state.cfg.zone_id) - 1);
+            s_state.cfg.zone_id[sizeof(s_state.cfg.zone_id) - 1] = '\0';
+            strncpy(s_state.zone_label, entry->name, sizeof(s_state.zone_label) - 1);
+            s_state.zone_label[sizeof(s_state.zone_label) - 1] = '\0';
+            strncpy(zone_label_copy, s_state.zone_label, sizeof(zone_label_copy) - 1);
+            should_sync = true;
+        }
+        s_state.zone_resolved = true;
+        success = should_sync && zone_label_copy[0] != '\\0';
+    }
+    unlock_state();
+
+    platform_http_free(resp);
+    if (success) {
+        platform_storage_save(&s_state.cfg);
+        post_ui_zone_name(zone_label_copy);
+    }
+    return success;
+}
+
+static void parse_zones_from_response(const char *resp) {
+    if (!resp) {
+        return;
+    }
+    lock_state();
+    s_state.zone_count = 0;
+    const char *cursor = resp;
+    while (s_state.zone_count < MAX_ZONES && (cursor = strstr(cursor, "\"zone_id\""))) {
+        char id[MAX_ZONE_NAME] = {0};
+        char name[MAX_ZONE_NAME] = {0};
+        const char *next = extract_json_string(cursor, "\"zone_id\"", id, sizeof(id));
+        if (!next) {
+            break;
+        }
+        const char *after_name = extract_json_string(next, "\"zone_name\"", name, sizeof(name));
+        if (!after_name) {
+            cursor = next;
+            continue;
+        }
+        strncpy(s_state.zones[s_state.zone_count].id, id, sizeof(s_state.zones[0].id) - 1);
+        strncpy(s_state.zones[s_state.zone_count].name, name, sizeof(s_state.zones[0].name) - 1);
+        s_state.zones[s_state.zone_count].id[sizeof(s_state.zones[0].id) - 1] = '\0';
+        s_state.zones[s_state.zone_count].name[sizeof(s_state.zones[0].name) - 1] = '\0';
+        s_state.zone_count++;
+        cursor = after_name;
+    }
+    unlock_state();
+}
+
+static const char *extract_json_string(const char *start, const char *key, char *out, size_t len) {
+    const char *key_pos = strstr(start, key);
+    if (!key_pos) {
+        return NULL;
+    }
+    const char *colon = strchr(key_pos, ':');
+    if (!colon) {
+        return NULL;
+    }
+    const char *quote_start = strchr(colon, '"');
+    if (!quote_start) {
+        return NULL;
+    }
+    quote_start++;
+    const char *quote_end = strchr(quote_start, '"');
+    if (!quote_end) {
+        return NULL;
+    }
+    size_t copy_len = quote_end - quote_start;
+    if (copy_len >= len) {
+        copy_len = len - 1;
+    }
+    memcpy(out, quote_start, copy_len);
+    out[copy_len] = '\0';
+    return quote_end + 1;
+}
+
+static bool send_control_json(const char *json) {
+    if (!json) {
+        return false;
+    }
+    lock_state();
+    char bridge_base[sizeof(s_state.cfg.bridge_base)];
+    char zone_id[sizeof(s_state.cfg.zone_id)];
+    strncpy(bridge_base, s_state.cfg.bridge_base, sizeof(bridge_base) - 1);
+    strncpy(zone_id, s_state.cfg.zone_id, sizeof(zone_id) - 1);
+    unlock_state();
+    if (bridge_base[0] == '\0' || zone_id[0] == '\0') {
+        return false;
+    }
+    char url[256];
+    snprintf(url, sizeof(url), "%s/control", bridge_base);
+    char *resp = NULL;
+    size_t resp_len = 0;
+    int ret = platform_http_post_json(url, json, &resp, &resp_len);
+    if (ret != 0) {
+        platform_http_free(resp);
+        return false;
+    }
+    if (resp && strstr(resp, "\"error\"")) {
+        platform_http_free(resp);
+        return false;
+    }
+    platform_http_free(resp);
+    return true;
+}
+
+static void *roon_poll_thread(void *arg) {
+    (void)arg;
+    struct now_playing_state state;
+    default_now_playing(&state);
+    while (s_running) {
+        maybe_update_bridge_base();
+        if (!s_state.zone_resolved) {
+            refresh_zone_label(true);
+        }
+        bool ok = fetch_now_playing(&state);
+        post_ui_update(&state);
+        post_ui_status(ok);
+        if (ok && !s_last_net_ok) {
+            post_ui_message("Connected");
+        } else if (!ok && s_last_net_ok) {
+            post_ui_message("Waiting for data...");
+        }
+        s_last_net_ok = ok;
+        wait_for_poll_interval();
+    }
+    return NULL;
+}
+
+void roon_client_start(const rk_cfg_t *cfg) {
+    if (!cfg) {
+        return;
+    }
+    platform_task_init();
+    lock_state();
+    s_state.cfg = *cfg;
+    strncpy(s_state.zone_label, cfg->zone_id[0] ? cfg->zone_id : "Loading zone", sizeof(s_state.zone_label) - 1);
+    s_state.zone_label[sizeof(s_state.zone_label) - 1] = '\0';
+    unlock_state();
+    s_running = true;
+    platform_task_start(roon_poll_thread, NULL);
+}
+
+void roon_client_handle_input(ui_input_event_t event) {
+    if (ui_is_zone_picker_visible()) {
+        if (event == UI_INPUT_VOL_UP) {
+            ui_zone_picker_scroll(-1);
+            return;
+        }
+        if (event == UI_INPUT_VOL_DOWN) {
+            ui_zone_picker_scroll(1);
+            return;
+        }
+        if (event == UI_INPUT_PLAY_PAUSE) {
+            int selected = ui_zone_picker_get_selected();
+            char label_copy[MAX_ZONE_NAME] = {0};
+            bool updated = false;
+            lock_state();
+            if (selected >= 0 && selected < s_state.zone_count) {
+                struct zone_entry *entry = &s_state.zones[selected];
+                strncpy(s_state.cfg.zone_id, entry->id, sizeof(s_state.cfg.zone_id) - 1);
+                s_state.cfg.zone_id[sizeof(s_state.cfg.zone_id) - 1] = '\0';
+                strncpy(s_state.zone_label, entry->name, sizeof(s_state.zone_label) - 1);
+                s_state.zone_label[sizeof(s_state.zone_label) - 1] = '\0';
+                strncpy(label_copy, s_state.zone_label, sizeof(label_copy) - 1);
+                s_state.zone_resolved = true;
+                s_trigger_poll = true;
+                updated = true;
+            }
+            unlock_state();
+            if (updated) {
+                platform_storage_save(&s_state.cfg);
+                post_ui_zone_name(label_copy);
+                post_ui_message("Loading zone...");
+            }
+            ui_hide_zone_picker();
+            return;
+        }
+        if (event == UI_INPUT_MENU) {
+            ui_hide_zone_picker();
+            return;
+        }
+        return;
+    }
+
+    if (event == UI_INPUT_MENU) {
+        const char *names[MAX_ZONES];
+        int selected = 0;
+        int count = 0;
+        lock_state();
+        if (s_state.zone_count > 0) {
+            count = s_state.zone_count;
+            for (int i = 0; i < s_state.zone_count; ++i) {
+                names[i] = s_state.zones[i].name;
+                if (strcmp(s_state.zones[i].id, s_state.cfg.zone_id) == 0) {
+                    selected = i;
+                }
+            }
+        }
+        unlock_state();
+        if (count > 0) {
+            ui_show_zone_picker(names, count, selected);
+        } else {
+            post_ui_message("No zones available");
+        }
+        return;
+    }
+
+    char body[256];
+    switch (event) {
+    case UI_INPUT_VOL_DOWN:
+        lock_state();
+        snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"vol_rel\",\"value\":%d}",
+            s_state.cfg.zone_id, -2);
+        unlock_state();
+        if (!send_control_json(body)) {
+            post_ui_message("Volume change failed");
+        }
+        break;
+    case UI_INPUT_VOL_UP:
+        lock_state();
+        snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"vol_rel\",\"value\":%d}",
+            s_state.cfg.zone_id, 2);
+        unlock_state();
+        if (!send_control_json(body)) {
+            post_ui_message("Volume change failed");
+        }
+        break;
+    case UI_INPUT_PLAY_PAUSE:
+        lock_state();
+        snprintf(body, sizeof(body), "{\"zone_id\":\"%s\",\"action\":\"play_pause\"}", s_state.cfg.zone_id);
+        unlock_state();
+        if (!send_control_json(body)) {
+            post_ui_message("Play/pause failed");
+        }
+        break;
+    default:
+        break;
+    }
+}

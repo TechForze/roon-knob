@@ -1,12 +1,18 @@
 set(SRC_FILES
-    "main.c"
-    "ui.c"
-    "encoder_input.c"
-    "net_client_idf.c"
-    "config_store.c"
-    "mdns_client.c"
+    "main_idf.c"
     "wifi_manager.c"
     "ui_network.c"
+    "platform_storage_idf.c"
+    "platform_http_idf.c"
+    "platform_mdns_idf.c"
+    "platform_log_idf.c"
+    "platform_input_idf.c"
+    "../../common/app_main.c"
+    "../../common/roon_client.c"
+    "../../common/ui.c"
+    "../../common/platform/platform_log.c"
+    "../../common/platform/platform_time.c"
+    "../../common/platform/platform_task.c"
 )
 
 idf_component_register(
@@ -14,6 +20,7 @@ idf_component_register(
     INCLUDE_DIRS
         "."
         "../../include"
+        "../../common"
     REQUIRES
         mdns
         esp_event
@@ -26,3 +33,5 @@ idf_component_register(
 )
 
 set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD 11)
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE TARGET_PC=0)

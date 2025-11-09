@@ -3,7 +3,7 @@
 #include <esp_log.h>
 #include <string.h>
 
-#include "config_store.h"
+#include "platform/platform_storage.h"
 #include "wifi_manager.h"
 
 #if defined(__has_include)
@@ -49,7 +49,7 @@ static struct ui_net_widgets s_widgets;
 
 static void refresh_labels(void) {
     rk_cfg_t cfg = {0};
-    rk_cfg_load(&cfg);
+    platform_storage_load(&cfg);
 
     if (s_widgets.ssid_value) {
         if (cfg.ssid[0]) {
@@ -104,10 +104,10 @@ static void wifi_form_submit(lv_event_t *e) {
         return;
     }
     rk_cfg_t cfg = {0};
-    rk_cfg_load(&cfg);
+    platform_storage_load(&cfg);
     copy_str(cfg.ssid, sizeof(cfg.ssid), lv_textarea_get_text(s_widgets.wifi_ssid));
     copy_str(cfg.pass, sizeof(cfg.pass), lv_textarea_get_text(s_widgets.wifi_pass));
-    if (rk_cfg_save(&cfg)) {
+    if (platform_storage_save(&cfg)) {
         wifi_mgr_reconnect(&cfg);
         refresh_labels();
     } else {
@@ -122,9 +122,9 @@ static void bridge_form_submit(lv_event_t *e) {
         return;
     }
     rk_cfg_t cfg = {0};
-    rk_cfg_load(&cfg);
+    platform_storage_load(&cfg);
     copy_str(cfg.bridge_base, sizeof(cfg.bridge_base), lv_textarea_get_text(s_widgets.bridge_input));
-    if (!rk_cfg_save(&cfg)) {
+    if (!platform_storage_save(&cfg)) {
         ESP_LOGW(TAG, "failed to save bridge base");
     }
     hide_form(s_widgets.bridge_form);
@@ -132,7 +132,6 @@ static void bridge_form_submit(lv_event_t *e) {
 
 static void forget_wifi_cb(lv_event_t *e) {
     (void)e;
-    rk_cfg_reset_wifi_only();
     wifi_mgr_forget_wifi();
     refresh_labels();
 }
@@ -150,7 +149,7 @@ static void show_wifi_form(lv_event_t *e) {
         return;
     }
     rk_cfg_t cfg = {0};
-    rk_cfg_load(&cfg);
+    platform_storage_load(&cfg);
     lv_textarea_set_text(s_widgets.wifi_ssid, cfg.ssid);
     lv_textarea_set_text(s_widgets.wifi_pass, cfg.pass);
     show_form(s_widgets.wifi_form);
@@ -163,7 +162,7 @@ static void show_bridge_form(lv_event_t *e) {
         return;
     }
     rk_cfg_t cfg = {0};
-    rk_cfg_load(&cfg);
+    platform_storage_load(&cfg);
     lv_textarea_set_text(s_widgets.bridge_input, cfg.bridge_base);
     show_form(s_widgets.bridge_form);
     hide_form(s_widgets.wifi_form);

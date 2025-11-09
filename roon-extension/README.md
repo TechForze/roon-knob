@@ -24,9 +24,18 @@ The process will auto-discover your Roon Core on the LAN. Keep the Core’s “E
 | Variable | Description |
 | --- | --- |
 | `PORT` | HTTP listen port (default `8088`). |
-| `LOG_LEVEL` | `debug` for verbose HTTP logs, otherwise `info`. |
+| `LOG_LEVEL` | `debug` for verbose HTTP logs, otherwise `info` (default `info`). |
 | `MDNS_NAME` | Friendly service name advertised over `_roonknob._tcp`. |
 | `ROON_SERVICE_PORT` | TCP port used for the Roon discovery socket (defaults to `9330`). |
+
+If you need to run another extension on the same host then remap the host side of `ports:` while leaving the container side at `8088`/`9330`. The entries are `HOST:CONTAINER`, so a host mapping of `9002:8088` (TCP) and `9392:9330` (TCP/UDP) keeps the internal sockets unchanged while exposing different host ports. After changing the ports, keep the container ports in sync by leaving the env overrides at:
+
+```
+PORT=8088
+ROON_SERVICE_PORT=9330
+```
+
+This ensures the bridge still listens on `8088`/`9330` inside the container while everything on the host hits the new ports. The default compose snippet now uses `network_mode: host` so no explicit port mappings are required, but if you switch back to bridge networking for any reason, uncomment the `ports:` block above and apply those host remaps before `docker compose up`.
 
 ## HTTP Contract
 

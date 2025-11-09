@@ -34,28 +34,15 @@ static void test_http_connectivity(void) {
     }
 
     // Test 2: Local bridge endpoint
-    ESP_LOGI(TAG, "Test 2: Trying local bridge http://192.168.1.213:8088/zones");
+    ESP_LOGI(TAG, "Test 2: Trying local bridge http://192.168.1.2:8088/zones");
     response = NULL;
     response_len = 0;
-    result = platform_http_get("http://192.168.1.213:8088/zones", &response, &response_len);
+    result = platform_http_get("http://192.168.1.2:8088/zones", &response, &response_len);
     if (result == 0 && response) {
         ESP_LOGI(TAG, "✓ Local bridge works! Got %d bytes", response_len);
         platform_http_free(response);
     } else {
         ESP_LOGE(TAG, "✗ Local bridge FAILED - network routing issue between ESP32 and local LAN");
-    }
-
-
-    // Test 3: Local bridge endpoint
-    ESP_LOGI(TAG, "Test 3: Trying local audiolinux: http://192.168.1.12:5001/index.html");
-    response = NULL;
-    response_len = 0;
-    result = platform_http_get("http://192.168.1.12:5001/index.html", &response, &response_len);
-    if (result == 0 && response) {
-        ESP_LOGI(TAG, "✓ Local audiolinux works! Got %d bytes", response_len);
-        platform_http_free(response);
-    } else {
-        ESP_LOGE(TAG, "✗ Local audiolinux FAILED - network routing issue between ESP32 and local LAN");
     }
 
     ESP_LOGI(TAG, "=== HTTP connectivity test complete ===");

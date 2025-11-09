@@ -1,16 +1,13 @@
 services:
   roon-knob-bridge:
-    build: .
-    container_name: roon-knob-bridge
+    image: docker.io/muness/roon-extension-knob:latest
     restart: unless-stopped
     environment:
-      - TZ=UTC
-      - PORT=8088
-      - ROON_SERVICE_PORT=9330
-    ports:
-      - "8088:8088/tcp"
-      - "9330:9330/tcp"
-      - "9330:9330/udp"
+      TZ: America/New_York
+      PORT: 8088
+      LOG_LEVEL: info
+      ROON_SERVICE_PORT: 9330
+    network_mode: host
     volumes:
       - roon-knob-bridge-data:/home/node/app/data
 

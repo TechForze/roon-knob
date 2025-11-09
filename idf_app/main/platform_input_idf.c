@@ -23,9 +23,8 @@ static QueueHandle_t s_input_queue = NULL;
 // Default values below assume common ESP32-S3 breakout board layout.
 
 // Rotary encoder quadrature signals (hardware-specific pins)
-// Note: Swapped A/B to fix direction (clockwise = volume up)
-#define ENCODER_GPIO_A    GPIO_NUM_7   // Encoder channel A (was GPIO_8, swapped)
-#define ENCODER_GPIO_B    GPIO_NUM_8   // Encoder channel B (was GPIO_7, swapped)
+#define ENCODER_GPIO_A    GPIO_NUM_8   // Encoder channel A (ECA)
+#define ENCODER_GPIO_B    GPIO_NUM_7   // Encoder channel B (ECB)
 
 // Touch screen - CST816 capacitive touch controller on I2C
 // Note: This device has NO physical buttons - all interactions via touchscreen or encoder

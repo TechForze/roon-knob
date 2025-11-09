@@ -5,6 +5,7 @@
 
 #include "os_mutex.h"
 #include "platform/platform_task.h"
+#include "platform/platform_time.h"
 #include "lvgl.h"
 #include "ui.h"
 
@@ -68,6 +69,11 @@ static bool s_message_dirty = false;
 static ui_input_cb_t s_input_cb;
 static char s_zone_name[64] = "Zone";
 
+// Progress bar interpolation state
+static uint64_t s_last_seek_update_ms = 0;
+static int s_last_seek_position = 0;
+static bool s_is_playing = false;
+
 static inline const lv_font_t *font_small(void) { return LV_FONT_DEFAULT; }
 static inline const lv_font_t *font_normal(void) { return LV_FONT_DEFAULT; }
 static inline const lv_font_t *font_large(void) { return LV_FONT_DEFAULT; }
@@ -127,6 +133,12 @@ void ui_update(const char *line1, const char *line2, bool playing, int volume, i
     s_pending.volume = volume;
     s_pending.seek_position = seek_position > 0 ? seek_position : 0;
     s_pending.length = length > 0 ? length : 0;
+
+    // Update interpolation state when we get new server data
+    s_last_seek_update_ms = platform_millis();
+    s_last_seek_position = s_pending.seek_position;
+    s_is_playing = playing;
+
     s_dirty = true;
     os_mutex_unlock(&s_state_lock);
 }

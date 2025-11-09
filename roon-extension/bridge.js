@@ -26,6 +26,7 @@ function createRoonBridge(opts = {}) {
     core: null,
     coreInfo: null,
     transport: null,
+    image: null,
     zones: [],
     nowPlayingByZone: new Map(),
     lastVolumeTick: new Map(),
@@ -46,6 +47,7 @@ function createRoonBridge(opts = {}) {
       log.info('Roon core paired', { id: core.core_id, name: core.display_name });
       state.core = core;
       state.transport = core.services.RoonApiTransport;
+      state.image = core.services.RoonApiImage || null;
       state.coreInfo = {
         id: core.core_id,
         name: core.display_name,
@@ -63,6 +65,7 @@ function createRoonBridge(opts = {}) {
       log.warn('Roon core disconnected');
       state.core = null;
       state.transport = null;
+      state.image = null;
       state.coreInfo = null;
       svc_status.set_status('Waiting for Roon core', true);
       if (state.coreLossTimer) {
@@ -135,6 +138,7 @@ function createRoonBridge(opts = {}) {
       seek_position: zone.now_playing?.seek_position ?? null,
       length: zone.now_playing?.length ?? null,
       zone_id: zone.zone_id,
+      image_key: zone.now_playing?.image_key || null,
     };
     state.nowPlayingByZone.set(zone.zone_id, summary);
 
@@ -177,6 +181,27 @@ function createRoonBridge(opts = {}) {
     const fallback = fallbackSummary(zone);
     state.nowPlayingByZone.set(zone_id, fallback);
     return fallback;
+  }
+
+  function getImage(image_key, opts = {}) {
+    return new Promise((resolve, reject) => {
+      if (!state.core || !state.image || !image_key) {
+        return reject(new Error('image service unavailable'));
+      }
+      const options = {};
+      if (opts.scale) options.scale = opts.scale;
+      if (opts.width) options.width = Number(opts.width);
+      if (opts.height) options.height = Number(opts.height);
+      if (opts.format) options.format = opts.format; // e.g., 'image/jpeg'
+      try {
+        state.image.get_image(image_key, options, (err, contentType, body) => {
+          if (err) return reject(new Error(String(err)));
+          resolve({ contentType, body });
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
   }
 
   async function control(zone_id, action, value) {

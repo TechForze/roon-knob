@@ -37,6 +37,38 @@ function createRoutes({ bridge, metrics, logger }) {
     res.json({ ...data, zones: bridge.getZones() });
   });
 
+  router.get('/now_playing/image', async (req, res) => {
+    const zoneId = req.query.zone_id;
+    if (!zoneId) {
+      return res.status(400).json({ error: 'zone_id required' });
+    }
+    const data = bridge.getNowPlaying(zoneId);
+    if (!data) {
+      return res.status(404).json({ error: 'zone not found' });
+    }
+    recordEvent(metrics, 'now_playing_image', req, { zone_id: zoneId, knob: extractKnob(req) });
+    logger?.debug('now_playing image requested', { zoneId, ip: req.ip });
+    const { scale, width, height, format } = req.query || {};
+    try {
+      if (data.image_key && bridge.getImage) {
+        const { contentType, body } = await bridge.getImage(data.image_key, { scale, width, height, format });
+        res.set('Content-Type', contentType || 'application/octet-stream');
+        return res.send(body);
+      }
+    } catch (error) {
+      logger?.warn('now_playing image proxy failed; falling back to placeholder', { zoneId, error });
+    }
+    // Fall back to placeholder SVG
+    const imagePath = path.join(__dirname, 'public', 'assets', 'now_playing.svg');
+    res.set('Content-Type', 'image/svg+xml');
+    res.sendFile(imagePath, (err) => {
+      if (err && !res.headersSent) {
+        logger?.error('Failed to send now_playing placeholder', { err });
+        res.status(500).json({ error: 'image delivery failed' });
+      }
+    });
+  });
+
   router.post('/control', async (req, res) => {
     const { zone_id, action, value } = req.body || {};
     if (!zone_id || !action) {

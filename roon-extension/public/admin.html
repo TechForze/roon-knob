@@ -11,6 +11,8 @@
     table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
     th, td { text-align: left; padding: 0.4rem; border-bottom: 1px solid #30363d; }
     th { color: #93ccea; }
+    td.art { width: 72px; }
+    img.art { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: #0d1117; border: 1px solid #30363d; }
     .pill { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 999px; font-size: 0.8rem; }
     .pill.online { background: #238636; }
     .pill.offline { background: #da3633; }
@@ -81,6 +83,7 @@
         const playingLabel = np.is_playing ? 'Pause' : 'Play';
         return `
           <tr data-zone="${zone.zone_id}">
+            <td class="art"><img class="art" src="/now_playing/image?zone_id=${zone.zone_id}&width=64&height=64&scale=fit" alt="art" /></td>
             <td>${zone.zone_name}</td>
             <td>${status}</td>
             <td>${volDisplay}</td>
@@ -96,7 +99,7 @@
         <h2>Zones</h2>
         <table>
           <thead>
-            <tr><th>Name</th><th>Now Playing</th><th>Vol</th><th>Controls</th></tr>
+            <tr><th>Art</th><th>Name</th><th>Now Playing</th><th>Vol</th><th>Controls</th></tr>
           </thead>
           <tbody>${zoneRows || '<tr><td colspan="4" class="muted">No zones yet</td></tr>'}</tbody>
         </table>

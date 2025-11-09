@@ -44,6 +44,7 @@ This ensures the bridge still listens on `8088`/`9330` inside the container whil
 
 - `GET /zones` → `[ { zone_id, zone_name } … ]`
 - `GET /now_playing?zone_id=<id>` → `{ line1, line2, is_playing, volume, volume_step }`
+- `GET /now_playing/image?zone_id=<id>` → Placeholder SVG until album-art proxy lands.
 - `POST /control` → `{ zone_id, action, value? }` (`action ∈ { play_pause, vol_rel, vol_abs }`)
 - `GET /status` → `{ status, version }`
 - `GET /image?image_key=…` → 204 placeholder until album-art proxy lands.

@@ -345,7 +345,7 @@ void ota_check_for_update(void) {
         return;
     }
 
-    xTaskCreate(check_update_task, "ota_check", 8192, NULL, 5, &s_ota_task);
+    xTaskCreate(check_update_task, "ota_check", 8192, NULL, 1, &s_ota_task);  // Low priority to not block UI
 }
 
 void ota_start_update(void) {
@@ -359,7 +359,7 @@ void ota_start_update(void) {
         return;
     }
 
-    xTaskCreate(do_update_task, "ota_update", 8192, NULL, 5, &s_ota_task);
+    xTaskCreate(do_update_task, "ota_update", 8192, NULL, 1, &s_ota_task);  // Low priority to not block UI
 }
 
 const ota_info_t* ota_get_info(void) {

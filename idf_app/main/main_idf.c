@@ -1,6 +1,7 @@
 #include "app.h"
 #include "battery.h"
 #include "config_server.h"
+#include "display_sleep.h"
 #include "ota_update.h"
 #include "platform/platform_http.h"
 #include "platform/platform_input.h"
@@ -118,9 +119,16 @@ static void check_ota_status(void) {
 
     // Update UI when status changes
     if (info->status != last_status) {
+        ESP_LOGI(TAG, "OTA status change: %d -> %d", last_status, info->status);
         last_status = info->status;
 
         switch (info->status) {
+            case OTA_STATUS_IDLE:
+                ESP_LOGI(TAG, "OTA: Idle");
+                break;
+            case OTA_STATUS_CHECKING:
+                ESP_LOGI(TAG, "OTA: Checking for updates...");
+                break;
             case OTA_STATUS_AVAILABLE:
                 ESP_LOGI(TAG, "OTA: Update available: %s", info->available_version);
                 ui_set_update_available(info->available_version);
@@ -131,6 +139,7 @@ static void check_ota_status(void) {
                 break;
             case OTA_STATUS_DOWNLOADING:
                 ESP_LOGI(TAG, "OTA: Downloading update...");
+                ui_set_update_progress(0);
                 break;
             case OTA_STATUS_COMPLETE:
                 ESP_LOGI(TAG, "OTA: Update complete, rebooting...");
@@ -142,14 +151,19 @@ static void check_ota_status(void) {
                 ui_set_update_available(NULL);
                 break;
             default:
+                ESP_LOGW(TAG, "OTA: Unknown status %d", info->status);
                 break;
         }
     }
 
-    // Update progress during download
-    if (info->status == OTA_STATUS_DOWNLOADING && info->progress_percent != last_progress) {
-        last_progress = info->progress_percent;
-        ui_set_update_progress(info->progress_percent);
+    // Update progress during download (and keep display awake)
+    if (info->status == OTA_STATUS_DOWNLOADING) {
+        display_activity_detected();  // Keep display awake during OTA
+        if (info->progress_percent != last_progress) {
+            last_progress = info->progress_percent;
+            ui_set_update_progress(info->progress_percent);
+            ESP_LOGI(TAG, "OTA progress: %d%%", info->progress_percent);
+        }
     }
 }
 

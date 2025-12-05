@@ -1,4 +1,5 @@
 #include "wifi_manager.h"
+#include "captive_portal.h"
 
 #include <esp_err.h>
 #include <esp_event.h>
@@ -15,13 +16,21 @@
 static const char *TAG = "wifi_mgr";
 static const uint32_t s_backoff_ms[] = {500, 1000, 2000, 4000, 8000, 16000, 30000};
 
+// AP mode configuration
+#define AP_SSID "roon-knob-setup"
+#define AP_MAX_CONNECTIONS 2
+#define STA_FAIL_THRESHOLD 5  // Switch to AP after this many consecutive STA failures
+
 static rk_cfg_t s_cfg;
 static bool s_cfg_loaded;
-static esp_netif_t *s_netif;
+static esp_netif_t *s_sta_netif;
+static esp_netif_t *s_ap_netif;
 static esp_timer_handle_t s_retry_timer;
 static size_t s_backoff_idx;
 static bool s_started;
 static char s_ip[16];
+static bool s_ap_mode;           // true when in AP provisioning mode
+static int s_sta_fail_count;     // consecutive STA connection failures
 
 static void copy_str(char *dst, size_t dst_len, const char *src) {
     if (!dst || dst_len == 0) {
@@ -98,13 +107,18 @@ static void reset_backoff(void) {
 }
 
 static void schedule_retry(void);
+static void start_ap_mode(void);
 
 static void connect_now(void) {
+    if (s_ap_mode) {
+        return;  // Don't try STA when in AP mode
+    }
     if (!s_cfg_loaded) {
         ensure_cfg_loaded();
     }
     if (s_cfg.ssid[0] == '\0') {
-        ESP_LOGW(TAG, "SSID empty; skipping connect. Configure WiFi via on-device UI or 'idf.py menuconfig'");
+        ESP_LOGW(TAG, "SSID empty; starting AP mode for provisioning");
+        start_ap_mode();
         return;
     }
     ESP_LOGI(TAG, "Connecting to WiFi SSID: '%s'", s_cfg.ssid);
@@ -134,6 +148,16 @@ static void retry_timer_cb(void *arg) {
 }
 
 static void schedule_retry(void) {
+    s_sta_fail_count++;
+    ESP_LOGW(TAG, "STA connection failed (attempt %d/%d)", s_sta_fail_count, STA_FAIL_THRESHOLD);
+
+    // Switch to AP mode after too many failures
+    if (s_sta_fail_count >= STA_FAIL_THRESHOLD) {
+        ESP_LOGW(TAG, "Too many STA failures, switching to AP mode for provisioning");
+        start_ap_mode();
+        return;
+    }
+
     uint32_t delay = s_backoff_ms[s_backoff_idx];
     if (s_backoff_idx + 1 < (sizeof(s_backoff_ms) / sizeof(s_backoff_ms[0]))) {
         s_backoff_idx++;
@@ -173,7 +197,49 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
 
     ESP_LOGI(TAG, "Connected to WiFi SSID: '%s', IP: %s", s_cfg.ssid, s_ip);
     reset_backoff();
+    s_sta_fail_count = 0;  // Reset failure count on successful connection
     rk_net_evt_cb(RK_NET_EVT_GOT_IP, s_ip);
+}
+
+static void start_ap_mode(void) {
+    if (s_ap_mode) {
+        return;  // Already in AP mode
+    }
+
+    ESP_LOGI(TAG, "Starting AP mode for provisioning (SSID: %s)", AP_SSID);
+
+    // Stop STA mode
+    esp_wifi_stop();
+
+    // Create AP netif if needed
+    if (!s_ap_netif) {
+        s_ap_netif = esp_netif_create_default_wifi_ap();
+    }
+
+    // Configure AP
+    wifi_config_t ap_config = {
+        .ap = {
+            .ssid = AP_SSID,
+            .ssid_len = strlen(AP_SSID),
+            .channel = 1,
+            .password = "",  // Open network for easy provisioning
+            .max_connection = AP_MAX_CONNECTIONS,
+            .authmode = WIFI_AUTH_OPEN,
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    s_ap_mode = true;
+    s_sta_fail_count = 0;
+
+    // Start captive portal HTTP server
+    captive_portal_start();
+
+    // Notify UI that we're in AP mode (IP is always 192.168.4.1 for AP)
+    rk_net_evt_cb(RK_NET_EVT_AP_STARTED, "192.168.4.1");
 }
 
 void wifi_mgr_start(void) {
@@ -194,8 +260,8 @@ void wifi_mgr_start(void) {
         ESP_LOGE(TAG, "event loop init failed: %s", esp_err_to_name(err));
         return;
     }
-    if (!s_netif) {
-        s_netif = esp_netif_create_default_wifi_sta();
+    if (!s_sta_netif) {
+        s_sta_netif = esp_netif_create_default_wifi_sta();
     }
 
     wifi_init_config_t wifi_init_cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -274,6 +340,36 @@ void wifi_mgr_get_ssid(char *buf, size_t n) {
         ensure_cfg_loaded();
     }
     copy_str(buf, n, s_cfg.ssid);
+}
+
+bool wifi_mgr_is_ap_mode(void) {
+    return s_ap_mode;
+}
+
+void wifi_mgr_stop_ap(void) {
+    if (!s_ap_mode) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Stopping AP mode, switching to STA");
+
+    // Stop captive portal first
+    captive_portal_stop();
+
+    // Stop AP
+    esp_wifi_stop();
+
+    // Switch to STA mode
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    s_ap_mode = false;
+    s_sta_fail_count = 0;
+    s_ip[0] = '\0';
+
+    rk_net_evt_cb(RK_NET_EVT_AP_STOPPED, NULL);
+
+    // The STA_START event will trigger connect_now()
 }
 
 __attribute__((weak)) void rk_net_evt_cb(rk_net_evt_t evt, const char *ip_opt) {

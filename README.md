@@ -85,7 +85,7 @@ These must be completed before the device can be used by non-developers:
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **WiFi Provisioning (SoftAP)** | Not started | If WiFi fails for 2+ minutes, device should spawn AP "roon-knob-setup" with captive portal for credential entry. Currently requires manual menu navigation or compile-time defaults. |
+| **WiFi Provisioning (SoftAP)** | Complete | Device spawns AP "roon-knob-setup" after 5 failed STA attempts or if no SSID configured. Captive portal at 192.168.4.1 for credential entry. |
 | **mDNS-first Bridge Discovery** | Not started | Remove hardcoded bridge URL (`192.168.1.213`). Use mDNS `_roonknob._tcp` discovery as primary method. Code exists as fallback but should be default. |
 | **First-Boot Status UI** | Not started | Show meaningful status: "WiFi: Connecting...", "WiFi: Needs Setup", "Bridge: Searching...", "Bridge: Found". Currently shows generic "Waiting for bridge" for all failure modes. |
 | **Bridge Connectivity Test** | Not started | Validate bridge URL before saving. Test GET to `/zones` and show user if bridge is reachable. Prevents saving invalid URLs. |

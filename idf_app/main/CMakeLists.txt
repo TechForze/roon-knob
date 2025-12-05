@@ -1,6 +1,7 @@
 set(SRC_FILES
     "main_idf.c"
     "wifi_manager.c"
+    "captive_portal.c"
     "ui_network.c"
     "platform_display_idf.c"
     "display_sleep.c"
@@ -44,6 +45,7 @@ idf_component_register(
     PRIV_REQUIRES
         nvs_flash
         esp_http_client
+        esp_http_server
         driver
         esp_driver_ledc
         esp_adc

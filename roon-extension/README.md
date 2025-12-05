@@ -58,6 +58,6 @@ If the firmware or simulator includes `X-Knob-Id` and `X-Knob-Version` headers o
 
 ## Notes
 
-- On first launch, Roon will prompt you to enable “Roon Knob Bridge”.
+- On first launch, Roon will prompt you to enable "Roon Knob Bridge".
 - If you change ports or hostnames, restart the process so mDNS re-advertises the new TXT `base`.
 - `hqplayer_profile_switcher.js` remains as a reference add-on module from your other extension.

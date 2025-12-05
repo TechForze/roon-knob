@@ -47,6 +47,9 @@ void ui_set_update_available(const char *version);  // Show update notification 
 void ui_set_update_progress(int percent);  // Show update progress (-1 to hide)
 void ui_trigger_update(void);  // Called when user taps update notification
 
+// Display state control
+void ui_set_controls_visible(bool visible);  // Show/hide UI controls for art mode
+
 #ifdef __cplusplus
 }
 #endif

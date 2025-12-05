@@ -5,6 +5,7 @@
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "ui.h"
 
 static const char *TAG = "display_sleep";
 
@@ -13,7 +14,8 @@ static const char *TAG = "display_sleep";
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
 #define LEDC_SPEED_MODE     LEDC_LOW_SPEED_MODE
 
-// Display sleep configuration (from Kconfig)
+// Display timeout configuration (from Kconfig)
+#define DISPLAY_ART_MODE_TIMEOUT_MS (CONFIG_RK_DISPLAY_DIM_TIMEOUT_SEC * 1000 / 2)  // Half of dim timeout
 #define DISPLAY_DIM_TIMEOUT_MS (CONFIG_RK_DISPLAY_DIM_TIMEOUT_SEC * 1000)
 #define DISPLAY_SLEEP_TIMEOUT_MS (CONFIG_RK_DISPLAY_SLEEP_TIMEOUT_SEC * 1000)
 
@@ -32,11 +34,11 @@ static const char *TAG = "display_sleep";
 // Global state
 static esp_lcd_panel_handle_t s_panel_handle = NULL;
 static TaskHandle_t s_lvgl_task_handle = NULL;
+static esp_timer_handle_t s_art_mode_timer = NULL;
 static esp_timer_handle_t s_dim_timer = NULL;
 static esp_timer_handle_t s_sleep_timer = NULL;
 static SemaphoreHandle_t s_display_state_mutex = NULL;
-static bool s_display_is_on = true;
-static bool s_display_is_dimmed = false;
+static display_state_t s_display_state = DISPLAY_STATE_NORMAL;
 
 // Set backlight brightness using LEDC PWM
 void display_set_backlight(uint8_t brightness) {
@@ -44,12 +46,29 @@ void display_set_backlight(uint8_t brightness) {
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_SPEED_MODE, LEDC_CHANNEL));
 }
 
+// Get current display state
+display_state_t display_get_state(void) {
+    return s_display_state;
+}
+
+// Enter art mode - hide controls, keep full brightness
+void display_art_mode(void) {
+    LOCK_DISPLAY_STATE();
+    if (s_display_state == DISPLAY_STATE_NORMAL) {
+        s_display_state = DISPLAY_STATE_ART_MODE;
+        ui_set_controls_visible(false);
+        ESP_LOGI(TAG, "Display entering art mode");
+    }
+    UNLOCK_DISPLAY_STATE();
+}
+
 // Dim the display backlight
 void display_dim(void) {
     LOCK_DISPLAY_STATE();
-    if (s_display_is_on && !s_display_is_dimmed) {
+    if (s_display_state == DISPLAY_STATE_NORMAL || s_display_state == DISPLAY_STATE_ART_MODE) {
         display_set_backlight(BACKLIGHT_DIM);
-        s_display_is_dimmed = true;
+        ui_set_controls_visible(false);
+        s_display_state = DISPLAY_STATE_DIM;
         ESP_LOGI(TAG, "Display dimmed (brightness: %d%%)", (BACKLIGHT_DIM * 100) / 255);
     }
     UNLOCK_DISPLAY_STATE();
@@ -58,7 +77,7 @@ void display_dim(void) {
 // Put display to sleep
 void display_sleep(void) {
     LOCK_DISPLAY_STATE();
-    if (s_display_is_on && s_panel_handle != NULL) {
+    if (s_display_state != DISPLAY_STATE_SLEEP && s_panel_handle != NULL) {
         // Turn off backlight
         display_set_backlight(0);
 
@@ -71,21 +90,19 @@ void display_sleep(void) {
             ESP_LOGI(TAG, "LVGL task priority lowered");
         }
 
-        s_display_is_on = false;
-        s_display_is_dimmed = false;
+        s_display_state = DISPLAY_STATE_SLEEP;
         ESP_LOGI(TAG, "Display sleeping");
     }
     UNLOCK_DISPLAY_STATE();
 }
 
-// Wake up display
+// Wake up display to normal state
 void display_wake(void) {
     LOCK_DISPLAY_STATE();
 
-    bool was_off = !s_display_is_on;
-    bool was_dimmed = s_display_is_dimmed;
+    display_state_t prev_state = s_display_state;
 
-    if (!s_display_is_on && s_panel_handle != NULL) {
+    if (s_display_state == DISPLAY_STATE_SLEEP && s_panel_handle != NULL) {
         // Turn on display panel first
         esp_lcd_panel_disp_on_off(s_panel_handle, true);
 
@@ -97,24 +114,25 @@ void display_wake(void) {
             vTaskPrioritySet(s_lvgl_task_handle, LVGL_TASK_PRIORITY_NORMAL);
             ESP_LOGI(TAG, "LVGL task priority restored");
         }
+    }
 
-        // Turn on backlight to normal
+    if (s_display_state != DISPLAY_STATE_NORMAL) {
+        // Restore full brightness
         display_set_backlight(BACKLIGHT_NORMAL);
-
-        s_display_is_on = true;
-        s_display_is_dimmed = false;
+        // Show controls
+        ui_set_controls_visible(true);
+        s_display_state = DISPLAY_STATE_NORMAL;
         ESP_LOGI(TAG, "Display awake (brightness: %d%%)", (BACKLIGHT_NORMAL * 100) / 255);
-    } else if (s_display_is_dimmed) {
-        // Just restore brightness if only dimmed
-        display_set_backlight(BACKLIGHT_NORMAL);
-        s_display_is_dimmed = false;
-        ESP_LOGI(TAG, "Display brightness restored");
     }
 
     UNLOCK_DISPLAY_STATE();
 
     // Reset timers outside of mutex to avoid deadlock
-    if (was_off || was_dimmed) {
+    if (prev_state != DISPLAY_STATE_NORMAL) {
+        if (s_art_mode_timer != NULL) {
+            esp_timer_stop(s_art_mode_timer);
+            esp_timer_start_once(s_art_mode_timer, DISPLAY_ART_MODE_TIMEOUT_MS * 1000ULL);
+        }
         if (s_dim_timer != NULL) {
             esp_timer_stop(s_dim_timer);
             esp_timer_start_once(s_dim_timer, DISPLAY_DIM_TIMEOUT_MS * 1000ULL);
@@ -124,6 +142,11 @@ void display_wake(void) {
             esp_timer_start_once(s_sleep_timer, DISPLAY_SLEEP_TIMEOUT_MS * 1000ULL);
         }
     }
+}
+
+// Timer callback for art mode
+static void art_mode_timer_callback(void *arg) {
+    display_art_mode();
 }
 
 // Timer callback for dimming
@@ -150,6 +173,14 @@ void display_sleep_init(esp_lcd_panel_handle_t panel_handle, TaskHandle_t lvgl_t
     s_panel_handle = panel_handle;
     s_lvgl_task_handle = lvgl_task_handle;
 
+    // Create art mode timer
+    const esp_timer_create_args_t art_mode_timer_args = {
+        .callback = &art_mode_timer_callback,
+        .name = "display_art_mode"
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&art_mode_timer_args, &s_art_mode_timer));
+    ESP_ERROR_CHECK(esp_timer_start_once(s_art_mode_timer, DISPLAY_ART_MODE_TIMEOUT_MS * 1000ULL));
+
     // Create dim timer
     const esp_timer_create_args_t dim_timer_args = {
         .callback = &dim_timer_callback,
@@ -166,17 +197,23 @@ void display_sleep_init(esp_lcd_panel_handle_t panel_handle, TaskHandle_t lvgl_t
     ESP_ERROR_CHECK(esp_timer_create(&sleep_timer_args, &s_sleep_timer));
     ESP_ERROR_CHECK(esp_timer_start_once(s_sleep_timer, DISPLAY_SLEEP_TIMEOUT_MS * 1000ULL));
 
-    ESP_LOGI(TAG, "Display sleep initialized (dim: %ds, sleep: %ds)",
-             DISPLAY_DIM_TIMEOUT_MS / 1000, DISPLAY_SLEEP_TIMEOUT_MS / 1000);
+    ESP_LOGI(TAG, "Display sleep initialized (art: %ds, dim: %ds, sleep: %ds)",
+             DISPLAY_ART_MODE_TIMEOUT_MS / 1000, DISPLAY_DIM_TIMEOUT_MS / 1000, DISPLAY_SLEEP_TIMEOUT_MS / 1000);
 }
 
 // Activity detected - reset timers and wake if needed
 void display_activity_detected(void) {
-    // Wake display if sleeping or dimmed
-    if (!s_display_is_on || s_display_is_dimmed) {
+    display_state_t current_state = display_get_state();
+
+    // Wake display if not in normal state
+    if (current_state != DISPLAY_STATE_NORMAL) {
         display_wake();
     } else {
-        // Just reset the timers if already awake
+        // Just reset the timers if already awake in normal state
+        if (s_art_mode_timer != NULL) {
+            esp_timer_stop(s_art_mode_timer);
+            esp_timer_start_once(s_art_mode_timer, DISPLAY_ART_MODE_TIMEOUT_MS * 1000ULL);
+        }
         if (s_dim_timer != NULL) {
             esp_timer_stop(s_dim_timer);
             esp_timer_start_once(s_dim_timer, DISPLAY_DIM_TIMEOUT_MS * 1000ULL);
@@ -190,5 +227,5 @@ void display_activity_detected(void) {
 
 // Check if display is sleeping
 bool display_is_sleeping(void) {
-    return !s_display_is_on;
+    return s_display_state == DISPLAY_STATE_SLEEP;
 }

@@ -163,6 +163,9 @@ static void ui_loop_task(void *arg) {
         // Process queued input events from ISR context
         platform_input_process_events();
 
+        // Process pending display actions (e.g., swipe gestures)
+        platform_display_process_pending();
+
         // Run LVGL task handler
         ui_loop_iter();
 

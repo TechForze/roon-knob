@@ -21,6 +21,15 @@
 
 static const char *TAG = "display";
 
+// Swipe gesture detection
+#define SWIPE_MIN_DISTANCE 60   // Minimum pixels for swipe
+#define SWIPE_MAX_TIME_MS 500   // Maximum time for swipe gesture
+static int16_t s_touch_start_x = 0;
+static int16_t s_touch_start_y = 0;
+static int64_t s_touch_start_time = 0;
+static bool s_touch_tracking = false;
+static volatile bool s_pending_art_mode = false;  // Deferred art mode activation
+
 // LVGL tick timer (critical for LVGL to know time is passing)
 static esp_timer_handle_t s_lvgl_tick_timer = NULL;
 #define LVGL_TICK_PERIOD_MS 2
@@ -287,7 +296,7 @@ static void lvgl_tick_timer_cb(void *arg) {
     lv_tick_inc(LVGL_TICK_PERIOD_MS);
 }
 
-// LVGL touch read callback
+// LVGL touch read callback with swipe gesture detection
 static void lvgl_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     (void)indev;
     uint16_t x, y;
@@ -297,8 +306,33 @@ static void lvgl_touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
         data->point.x = x;
         data->point.y = y;
         data->state = LV_INDEV_STATE_PRESSED;
+
+        // Start tracking touch for swipe detection
+        if (!s_touch_tracking) {
+            s_touch_start_x = x;
+            s_touch_start_y = y;
+            s_touch_start_time = esp_timer_get_time() / 1000;  // Convert to ms
+            s_touch_tracking = true;
+        }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
+
+        // Check for swipe gesture on release
+        if (s_touch_tracking) {
+            int64_t elapsed = (esp_timer_get_time() / 1000) - s_touch_start_time;
+
+            if (elapsed < SWIPE_MAX_TIME_MS) {
+                int16_t dx = data->point.x - s_touch_start_x;
+                int16_t dy = data->point.y - s_touch_start_y;
+
+                // Check for swipe up (negative Y direction)
+                if (dy < -SWIPE_MIN_DISTANCE && abs(dy) > abs(dx)) {
+                    ESP_LOGI(TAG, "Swipe up detected - queueing art mode");
+                    s_pending_art_mode = true;  // Defer to avoid LVGL threading issues
+                }
+            }
+            s_touch_tracking = false;
+        }
     }
 }
 
@@ -462,4 +496,12 @@ void platform_display_init_sleep(TaskHandle_t lvgl_task_handle) {
 
 bool platform_display_is_sleeping(void) {
     return display_is_sleeping();
+}
+
+void platform_display_process_pending(void) {
+    // Process deferred art mode activation (safe to call LVGL here)
+    if (s_pending_art_mode) {
+        s_pending_art_mode = false;
+        display_art_mode();
+    }
 }

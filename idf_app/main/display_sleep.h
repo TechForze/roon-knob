@@ -9,6 +9,14 @@
 extern "C" {
 #endif
 
+// Display states: Normal -> Art Mode -> Dim -> Sleep
+typedef enum {
+    DISPLAY_STATE_NORMAL,    // Full brightness, all controls visible
+    DISPLAY_STATE_ART_MODE,  // Full brightness, controls hidden (art focus)
+    DISPLAY_STATE_DIM,       // Reduced brightness, controls hidden
+    DISPLAY_STATE_SLEEP,     // Screen off
+} display_state_t;
+
 /**
  * @brief Initialize display sleep/dim functionality
  *
@@ -16,6 +24,11 @@ extern "C" {
  * @param lvgl_task_handle LVGL task handle for priority control (can be NULL)
  */
 void display_sleep_init(esp_lcd_panel_handle_t panel_handle, TaskHandle_t lvgl_task_handle);
+
+/**
+ * @brief Enter art mode - hide controls, keep full brightness
+ */
+void display_art_mode(void);
 
 /**
  * @brief Dim the display backlight
@@ -53,6 +66,11 @@ void display_set_backlight(uint8_t brightness);
  * @return true if display is off, false if on or dimmed
  */
 bool display_is_sleeping(void);
+
+/**
+ * @brief Get current display state
+ */
+display_state_t display_get_state(void);
 
 #ifdef __cplusplus
 }

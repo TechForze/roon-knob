@@ -21,4 +21,7 @@ bool platform_display_is_ready(void);
 // @param lvgl_task_handle Handle to LVGL/UI task for priority control
 void platform_display_init_sleep(TaskHandle_t lvgl_task_handle);
 
+// Process any pending display actions (call from UI loop)
+void platform_display_process_pending(void);
+
 #endif // PLATFORM_DISPLAY_IDF_H

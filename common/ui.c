@@ -357,7 +357,7 @@ static void build_layout(void) {
     lv_obj_set_height(s_artist_label, LV_SIZE_CONTENT);  // Limit to single line
     lv_obj_set_style_text_font(s_artist_label, font_small(), 0);
     lv_obj_set_style_text_align(s_artist_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(s_artist_label, COLOR_GREY, 0);  // Grey for secondary text
+    lv_obj_set_style_text_color(s_artist_label, lv_color_hex(0xaaaaaa), 0);  // Light grey for secondary text
     lv_label_set_long_mode(s_artist_label, LV_LABEL_LONG_SCROLL_CIRCULAR);  // Slow scroll for long text
     lv_obj_set_style_anim_duration(s_artist_label, 8000, LV_PART_MAIN);  // 8 second scroll cycle
     lv_obj_set_style_max_height(s_artist_label, 25, 0);  // Limit height to prevent overflow
@@ -1188,4 +1188,42 @@ void ui_trigger_update(void) {
 #else
     ESP_LOGI(UI_TAG, "OTA update not available on PC simulator");
 #endif
+}
+
+// ============================================================================
+// Display State Control - Art Mode
+// ============================================================================
+
+void ui_set_controls_visible(bool visible) {
+    if (visible) {
+        // Show all controls
+        if (s_btn_prev) lv_obj_clear_flag(s_btn_prev, LV_OBJ_FLAG_HIDDEN);
+        if (s_btn_play) lv_obj_clear_flag(s_btn_play, LV_OBJ_FLAG_HIDDEN);
+        if (s_btn_next) lv_obj_clear_flag(s_btn_next, LV_OBJ_FLAG_HIDDEN);
+        if (s_track_label) lv_obj_clear_flag(s_track_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_artist_label) lv_obj_clear_flag(s_artist_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_zone_label) lv_obj_clear_flag(s_zone_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_volume_label) lv_obj_clear_flag(s_volume_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_battery_label) lv_obj_clear_flag(s_battery_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_status_dot) lv_obj_clear_flag(s_status_dot, LV_OBJ_FLAG_HIDDEN);
+        if (s_status_bar) lv_obj_clear_flag(s_status_bar, LV_OBJ_FLAG_HIDDEN);
+        // Restore artwork dimming for text contrast
+        if (s_artwork_image) lv_obj_set_style_img_opa(s_artwork_image, LV_OPA_40, 0);
+        ESP_LOGI(UI_TAG, "Controls shown");
+    } else {
+        // Hide controls for art mode - show only artwork and arcs
+        if (s_btn_prev) lv_obj_add_flag(s_btn_prev, LV_OBJ_FLAG_HIDDEN);
+        if (s_btn_play) lv_obj_add_flag(s_btn_play, LV_OBJ_FLAG_HIDDEN);
+        if (s_btn_next) lv_obj_add_flag(s_btn_next, LV_OBJ_FLAG_HIDDEN);
+        if (s_track_label) lv_obj_add_flag(s_track_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_artist_label) lv_obj_add_flag(s_artist_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_zone_label) lv_obj_add_flag(s_zone_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_volume_label) lv_obj_add_flag(s_volume_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_battery_label) lv_obj_add_flag(s_battery_label, LV_OBJ_FLAG_HIDDEN);
+        if (s_status_dot) lv_obj_add_flag(s_status_dot, LV_OBJ_FLAG_HIDDEN);
+        if (s_status_bar) lv_obj_add_flag(s_status_bar, LV_OBJ_FLAG_HIDDEN);
+        // Make artwork fully visible in art mode
+        if (s_artwork_image) lv_obj_set_style_img_opa(s_artwork_image, LV_OPA_COVER, 0);
+        ESP_LOGI(UI_TAG, "Controls hidden (art mode)");
+    }
 }

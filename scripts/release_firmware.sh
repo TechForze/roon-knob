@@ -46,22 +46,44 @@ if ! git -C "$ROOT_DIR" diff --quiet || ! git -C "$ROOT_DIR" diff --cached --qui
     exit 1
 fi
 
+# Check if tag already exists
+if git -C "$ROOT_DIR" tag -l "v$NEW_VERSION" | grep -q "v$NEW_VERSION"; then
+    echo "Error: Tag v$NEW_VERSION already exists."
+    echo "If you need to re-release, delete the tag first:"
+    echo "  git tag -d v$NEW_VERSION"
+    echo "  git push origin :refs/tags/v$NEW_VERSION"
+    exit 1
+fi
+
+# Get current version
+CURRENT_VERSION=$(grep 'set(PROJECT_VER' "$CMAKE_FILE" | sed 's/.*"\(.*\)".*/\1/')
+
 echo "=== Releasing v$NEW_VERSION ==="
 
 # Step 1: Update version in CMakeLists.txt
 echo "[1/4] Updating version in CMakeLists.txt..."
-sed -i '' "s/set(PROJECT_VER \".*\")/set(PROJECT_VER \"$NEW_VERSION\")/" "$CMAKE_FILE"
-echo "      Version set to $NEW_VERSION"
+if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
+    echo "      Version already set to $NEW_VERSION"
+else
+    sed -i '' "s/set(PROJECT_VER \".*\")/set(PROJECT_VER \"$NEW_VERSION\")/" "$CMAKE_FILE"
+    echo "      Version updated: $CURRENT_VERSION -> $NEW_VERSION"
+fi
 
-# Step 2: Commit
+# Step 2: Commit (only if there are changes)
 echo "[2/4] Committing..."
 cd "$ROOT_DIR"
 git add "$CMAKE_FILE"
-git commit -m "Release v$NEW_VERSION"
+if git diff --cached --quiet; then
+    echo "      No changes to commit (version was already $NEW_VERSION)"
+else
+    git commit -m "Release v$NEW_VERSION"
+    echo "      Committed"
+fi
 
 # Step 3: Tag
 echo "[3/4] Creating tag v$NEW_VERSION..."
 git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
+echo "      Tag created"
 
 # Step 4: Push
 echo "[4/4] Pushing to GitHub..."

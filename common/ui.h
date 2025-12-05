@@ -34,6 +34,11 @@ void ui_zone_picker_scroll(int delta);
 void ui_set_artwork(const char *image_key);  // Set album artwork (placeholder for now)
 void ui_test_pattern(void);  // Debug: Show RGB test pattern to verify color format
 
+// Settings UI (platform-specific implementation)
+void ui_show_settings(void);  // Show settings panel (long-press zone label)
+void ui_hide_settings(void);  // Hide settings panel
+bool ui_is_settings_visible(void);  // Check if settings panel is visible
+
 // OTA update UI
 void ui_set_update_available(const char *version);  // Show update notification (NULL to hide)
 void ui_set_update_progress(int percent);  // Show update progress (-1 to hide)

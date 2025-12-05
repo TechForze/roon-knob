@@ -122,6 +122,7 @@ static void build_layout(void);
 static void poll_pending(lv_timer_t *timer);
 static void set_status_dot(bool online);
 static void zone_label_event_cb(lv_event_t *e);
+static void zone_label_long_press_cb(lv_event_t *e);
 static void btn_prev_event_cb(lv_event_t *e);
 static void btn_play_event_cb(lv_event_t *e);
 static void btn_next_event_cb(lv_event_t *e);
@@ -294,6 +295,7 @@ static void build_layout(void) {
     lv_obj_align(s_zone_label, LV_ALIGN_TOP_MID, 0, 35);
     lv_obj_add_flag(s_zone_label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_zone_label, zone_label_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_zone_label, zone_label_long_press_cb, LV_EVENT_LONG_PRESSED, NULL);
 
     // Add press state visual feedback
     lv_obj_set_style_text_color(s_zone_label, lv_color_hex(0xfafafa), LV_STATE_PRESSED);
@@ -403,6 +405,11 @@ static void zone_label_event_cb(lv_event_t *e) {
     if (s_input_cb) {
         s_input_cb(UI_INPUT_MENU);
     }
+}
+
+static void zone_label_long_press_cb(lv_event_t *e) {
+    (void)e;
+    ui_show_settings();
 }
 
 static void btn_prev_event_cb(lv_event_t *e) {

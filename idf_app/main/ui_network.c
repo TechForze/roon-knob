@@ -1,4 +1,5 @@
 #include "ui_network.h"
+#include "ui.h"
 
 #include <esp_log.h>
 #include <stdio.h>
@@ -361,6 +362,29 @@ void ui_network_on_event(rk_net_evt_t evt, const char *ip_opt) {
     lv_async_call(apply_evt_async, msg);
 }
 
+void ui_show_settings(void) {
+    ensure_panel();
+    refresh_labels();
+    char ip[16] = {0};
+    if (wifi_mgr_get_ip(ip, sizeof(ip))) {
+        set_ip_text(ip);
+    } else {
+        set_ip_text("(no IP)");
+    }
+    set_status_text("Wi-Fi idle");
+    lv_obj_clear_flag(s_widgets.panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+void ui_hide_settings(void) {
+    if (s_widgets.panel) {
+        lv_obj_add_flag(s_widgets.panel, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+bool ui_is_settings_visible(void) {
+    return s_widgets.panel && !lv_obj_has_flag(s_widgets.panel, LV_OBJ_FLAG_HIDDEN);
+}
+
 #else
 
 void ui_network_register_menu(void) {
@@ -370,6 +394,17 @@ void ui_network_register_menu(void) {
 void ui_network_on_event(rk_net_evt_t evt, const char *ip_opt) {
     (void)evt;
     (void)ip_opt;
+}
+
+void ui_show_settings(void) {
+    ESP_LOGI(TAG, "Settings UI not available (no LVGL)");
+}
+
+void ui_hide_settings(void) {
+}
+
+bool ui_is_settings_visible(void) {
+    return false;
 }
 
 #endif

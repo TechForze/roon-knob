@@ -1,4 +1,5 @@
 #include "captive_portal.h"
+#include "dns_server.h"
 #include "wifi_manager.h"
 #include "platform/platform_storage.h"
 
@@ -24,12 +25,13 @@ static const char *HTML_FORM =
     "p{color:#888;margin-top:0;}"
     "form{background:#16213e;padding:20px;border-radius:10px;max-width:300px;}"
     "label{display:block;margin:15px 0 5px;color:#aaa;}"
-    "input[type=text],input[type=password]{width:100%;padding:10px;border:1px solid #333;border-radius:5px;background:#0f0f1a;color:#fff;box-sizing:border-box;}"
+    "input[type=text],input[type=password],input[type=url]{width:100%;padding:10px;border:1px solid #333;border-radius:5px;background:#0f0f1a;color:#fff;box-sizing:border-box;}"
     "input[type=submit]{width:100%;padding:12px;margin-top:20px;background:#4fc3f7;color:#000;border:none;border-radius:5px;font-weight:bold;cursor:pointer;}"
     "input[type=submit]:hover{background:#29b6f6;}"
     ".status{padding:10px;margin-top:15px;border-radius:5px;}"
     ".success{background:#2e7d32;}"
     ".error{background:#c62828;}"
+    ".hint{font-size:12px;color:#666;margin-top:4px;}"
     "</style></head><body>"
     "<h1>Roon Knob</h1>"
     "<p>WiFi Setup</p>"
@@ -38,6 +40,9 @@ static const char *HTML_FORM =
     "<input type='text' name='ssid' required maxlength='32' placeholder='Your WiFi name'>"
     "<label>Password</label>"
     "<input type='password' name='pass' maxlength='64' placeholder='WiFi password'>"
+    "<label>Bridge URL (optional)</label>"
+    "<input type='url' name='bridge' maxlength='128' placeholder='http://192.168.1.x:8088'>"
+    "<p class='hint'>Leave empty to auto-discover via mDNS</p>"
     "<input type='submit' value='Connect'>"
     "</form></body></html>";
 
@@ -119,7 +124,7 @@ static esp_err_t root_get_handler(httpd_req_t *req) {
 
 // Handler for POST /configure - save credentials
 static esp_err_t configure_post_handler(httpd_req_t *req) {
-    char buf[256] = {0};
+    char buf[384] = {0};  // Increased for bridge URL
     int received = httpd_req_recv(req, buf, sizeof(buf) - 1);
 
     if (received <= 0) {
@@ -132,6 +137,7 @@ static esp_err_t configure_post_handler(httpd_req_t *req) {
 
     char ssid[33] = {0};
     char pass[65] = {0};
+    char bridge[129] = {0};
 
     if (!get_form_field(buf, "ssid", ssid, sizeof(ssid))) {
         ESP_LOGE(TAG, "Missing SSID");
@@ -142,7 +148,22 @@ static esp_err_t configure_post_handler(httpd_req_t *req) {
     // Password is optional (for open networks)
     get_form_field(buf, "pass", pass, sizeof(pass));
 
-    ESP_LOGI(TAG, "Configuring WiFi: SSID='%s'", ssid);
+    // Bridge URL is optional (mDNS will be used if not provided)
+    get_form_field(buf, "bridge", bridge, sizeof(bridge));
+
+    // Validate bridge URL format if provided
+    if (bridge[0]) {
+        // Must start with http:// and have something after
+        if (strncmp(bridge, "http://", 7) != 0 || strlen(bridge) < 10) {
+            ESP_LOGE(TAG, "Invalid bridge URL format: %s", bridge);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                "Invalid bridge URL. Must be like http://192.168.1.x:8088");
+            return ESP_FAIL;
+        }
+    }
+
+    ESP_LOGI(TAG, "Configuring WiFi: SSID='%s', bridge='%s'", ssid,
+             bridge[0] ? bridge : "(auto-discover)");
 
     // Load current config, update WiFi credentials, save
     rk_cfg_t cfg = {0};
@@ -150,6 +171,10 @@ static esp_err_t configure_post_handler(httpd_req_t *req) {
 
     strncpy(cfg.ssid, ssid, sizeof(cfg.ssid) - 1);
     strncpy(cfg.pass, pass, sizeof(cfg.pass) - 1);
+    if (bridge[0]) {
+        strncpy(cfg.bridge_base, bridge, sizeof(cfg.bridge_base) - 1);
+    }
+    // If bridge is empty, leave cfg.bridge_base as-is (mDNS will discover)
     cfg.cfg_ver = 1;  // Mark as configured
 
     if (!platform_storage_save(&cfg)) {
@@ -221,7 +246,10 @@ void captive_portal_start(void) {
     };
     httpd_register_uri_handler(s_server, &redirect);
 
-    ESP_LOGI(TAG, "Captive portal started");
+    // Start DNS server for captive portal detection (phones auto-popup)
+    dns_server_start();
+
+    ESP_LOGI(TAG, "Captive portal started with DNS hijacking");
 }
 
 void captive_portal_stop(void) {
@@ -230,6 +258,7 @@ void captive_portal_stop(void) {
     }
 
     ESP_LOGI(TAG, "Stopping captive portal");
+    dns_server_stop();
     httpd_stop(s_server);
     s_server = NULL;
 }

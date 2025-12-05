@@ -85,10 +85,10 @@ These must be completed before the device can be used by non-developers:
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **WiFi Provisioning (SoftAP)** | Complete | Device spawns AP "roon-knob-setup" after 5 failed STA attempts or if no SSID configured. Captive portal at 192.168.4.1 for credential entry. |
-| **mDNS-first Bridge Discovery** | Not started | Remove hardcoded bridge URL (`192.168.1.213`). Use mDNS `_roonknob._tcp` discovery as primary method. Code exists as fallback but should be default. |
-| **First-Boot Status UI** | Not started | Show meaningful status: "WiFi: Connecting...", "WiFi: Needs Setup", "Bridge: Searching...", "Bridge: Found". Currently shows generic "Waiting for bridge" for all failure modes. |
-| **Bridge Connectivity Test** | Not started | Validate bridge URL before saving. Test GET to `/zones` and show user if bridge is reachable. Prevents saving invalid URLs. |
+| **WiFi Provisioning (SoftAP)** | Complete | Device spawns AP "roon-knob-setup" after 5 failed STA attempts or if no SSID configured. True captive portal with DNS hijacking for auto-popup on phones. |
+| **mDNS-first Bridge Discovery** | Complete | mDNS `_roonknob._tcp` discovery is now the primary method. Compile-time default used only as fallback. Captive portal allows manual bridge URL entry. |
+| **First-Boot Status UI** | Complete | Meaningful status messages: "WiFi: Connecting/Retrying/Setup Mode", "Bridge: Searching/Found/Connected/Offline". Clear feedback for all connection states. |
+| **Bridge Connectivity Test** | Complete | URL format validation in captive portal. Auto-test on WiFi connect with feedback. "Test Bridge" button in settings for manual testing. |
 
 ### Post-Release Improvements
 
@@ -105,8 +105,6 @@ Nice to have but not blocking initial release:
 
 ### Current Limitations
 
-- Bridge URL is compile-time default (`CONFIG_RK_DEFAULT_BRIDGE_BASE`)
-- WiFi credentials require manual entry via Settings menu or menuconfig
 - No onboarding wizard on first boot
 - Error messages don't distinguish WiFi vs bridge vs zone issues
 

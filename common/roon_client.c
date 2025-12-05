@@ -240,29 +240,50 @@ static void wait_for_poll_interval(void) {
     }
 }
 
+// Fallback bridge URL when mDNS discovery fails and no bridge is stored
+#ifndef CONFIG_RK_DEFAULT_BRIDGE_BASE
+#define CONFIG_RK_DEFAULT_BRIDGE_BASE "http://127.0.0.1:8088"
+#endif
+
 static void maybe_update_bridge_base(void) {
     char discovered[sizeof(s_state.cfg.bridge_base)];
-    if (!platform_mdns_discover_base_url(discovered, sizeof(discovered))) {
-        return;
-    }
-    if (!host_is_numeric_ip(discovered)) {
-        char current_base[sizeof(s_state.cfg.bridge_base)];
+    bool mdns_ok = platform_mdns_discover_base_url(discovered, sizeof(discovered));
+
+    if (mdns_ok && host_is_numeric_ip(discovered)) {
+        // mDNS found a bridge - update if different
         lock_state();
-        strncpy(current_base, s_state.cfg.bridge_base, sizeof(current_base) - 1);
-        current_base[sizeof(current_base) - 1] = '\0';
+        bool is_new = (strcmp(s_state.cfg.bridge_base, discovered) != 0);
+        if (is_new) {
+            LOGI("mDNS discovered bridge: %s", discovered);
+            strncpy(s_state.cfg.bridge_base, discovered, sizeof(s_state.cfg.bridge_base) - 1);
+            s_state.cfg.bridge_base[sizeof(s_state.cfg.bridge_base) - 1] = '\0';
+            platform_storage_save(&s_state.cfg);
+        }
         unlock_state();
-        LOGW("discovered bridge base %s is not numeric, keeping %s", discovered,
-             current_base[0] ? current_base : "(unset)");
+        if (is_new) {
+            post_ui_message("Bridge: Found");
+        }
         return;
     }
-    lock_state();
-    if (strcmp(s_state.cfg.bridge_base, discovered) != 0) {
-        strncpy(s_state.cfg.bridge_base, discovered, sizeof(s_state.cfg.bridge_base) - 1);
-        s_state.cfg.bridge_base[sizeof(s_state.cfg.bridge_base) - 1] = '\0';
-        platform_storage_save(&s_state.cfg);
-        LOGI("bridge base updated to %s", s_state.cfg.bridge_base);
+
+    // mDNS failed or returned non-numeric host
+    if (mdns_ok) {
+        LOGW("mDNS returned non-numeric host: %s (ignoring)", discovered);
     }
+
+    // If no bridge is configured yet, fall back to compile-time default
+    lock_state();
+    bool need_default = (s_state.cfg.bridge_base[0] == '\0');
     unlock_state();
+
+    if (need_default) {
+        LOGI("mDNS discovery failed, using fallback: %s", CONFIG_RK_DEFAULT_BRIDGE_BASE);
+        lock_state();
+        strncpy(s_state.cfg.bridge_base, CONFIG_RK_DEFAULT_BRIDGE_BASE, sizeof(s_state.cfg.bridge_base) - 1);
+        s_state.cfg.bridge_base[sizeof(s_state.cfg.bridge_base) - 1] = '\0';
+        // Don't save the fallback - let mDNS retry on next poll
+        unlock_state();
+    }
 }
 
 static bool fetch_now_playing(struct now_playing_state *state) {
@@ -541,10 +562,23 @@ static void roon_poll_thread(void *arg) {
         bool ok = fetch_now_playing(&state);
         post_ui_update(&state);
         post_ui_status(ok);
-        // Don't show "Connected" message - it's just noise that blocks UI
-        // Only show error messages
-        if (!ok && s_last_net_ok) {
-            post_ui_message("Waiting for data...");
+
+        // Show meaningful status messages for state transitions
+        if (ok && !s_last_net_ok) {
+            // Just connected to bridge
+            post_ui_message("Bridge: Connected");
+        } else if (!ok && s_last_net_ok) {
+            // Lost connection to bridge
+            post_ui_message("Bridge: Offline");
+        } else if (!ok && !s_last_net_ok) {
+            // Still trying to connect - check if we have a bridge URL
+            lock_state();
+            bool has_bridge = (s_state.cfg.bridge_base[0] != '\0');
+            unlock_state();
+            if (!has_bridge) {
+                post_ui_message("Bridge: Searching...");
+            }
+            // If we have a bridge URL but it's not responding, don't spam messages
         }
         s_last_net_ok = ok;
         wait_for_poll_interval();

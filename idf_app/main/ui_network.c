@@ -1,8 +1,10 @@
 #include "ui_network.h"
 
 #include <esp_log.h>
+#include <stdio.h>
 #include <string.h>
 
+#include "platform/platform_http.h"
 #include "platform/platform_storage.h"
 #include "wifi_manager.h"
 
@@ -136,6 +138,35 @@ static void forget_wifi_cb(lv_event_t *e) {
     refresh_labels();
 }
 
+static void test_bridge_cb(lv_event_t *e) {
+    (void)e;
+    rk_cfg_t cfg = {0};
+    platform_storage_load(&cfg);
+
+    if (cfg.bridge_base[0] == '\0') {
+        set_status_text("No bridge URL");
+        return;
+    }
+
+    set_status_text("Testing...");
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/zones", cfg.bridge_base);
+
+    char *response = NULL;
+    size_t response_len = 0;
+    int result = platform_http_get(url, &response, &response_len);
+    platform_http_free(response);
+
+    if (result == 0 && response_len > 0) {
+        set_status_text("Bridge OK!");
+        ESP_LOGI(TAG, "Bridge test passed: %s", cfg.bridge_base);
+    } else {
+        set_status_text("Bridge FAILED");
+        ESP_LOGW(TAG, "Bridge test failed: %s (error %d)", cfg.bridge_base, result);
+    }
+}
+
 static void hide_panel_cb(lv_event_t *e) {
     (void)e;
     if (s_widgets.panel) {
@@ -266,6 +297,7 @@ static void ensure_panel(void) {
 
     create_button(s_widgets.panel, "Change Wi-Fi", show_wifi_form);
     create_button(s_widgets.panel, "Set Bridge", show_bridge_form);
+    create_button(s_widgets.panel, "Test Bridge", test_bridge_cb);
     create_button(s_widgets.panel, "Forget Wi-Fi", forget_wifi_cb);
     create_button(s_widgets.panel, "Back", hide_panel_cb);
 
@@ -290,8 +322,17 @@ static void apply_evt_async(void *data) {
             set_ip_text(msg->ip);
             break;
         case RK_NET_EVT_FAIL:
-        default:
             set_status_text("Retrying…");
+            break;
+        case RK_NET_EVT_AP_STARTED:
+            set_status_text("Setup Mode (AP)");
+            set_ip_text("192.168.4.1");
+            break;
+        case RK_NET_EVT_AP_STOPPED:
+            set_status_text("Connecting…");
+            set_ip_text("");
+            break;
+        default:
             break;
     }
     lv_free(msg);

@@ -3,6 +3,7 @@
 #include "ota_update.h"
 #include "platform/platform_http.h"
 #include "platform/platform_input.h"
+#include "platform/platform_storage.h"
 #include "platform/platform_time.h"
 #include "platform_display_idf.h"
 #include "roon_client.h"
@@ -14,6 +15,7 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <stdio.h>
 #include <nvs_flash.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -23,65 +25,82 @@ static const char *TAG = "main";
 // UI task handle for display sleep management
 static TaskHandle_t g_ui_task_handle = NULL;
 
-static void report_http_result(const char *label, int result, const char *url, size_t len) {
-    if (result == 0) {
-        ESP_LOGI(TAG, "✓ %s (%s) -> %d bytes", label, url, len);
+// Test bridge connectivity and show result to user
+static bool test_bridge_connectivity(void) {
+    rk_cfg_t cfg = {0};
+    platform_storage_load(&cfg);
+
+    if (cfg.bridge_base[0] == '\0') {
+        ESP_LOGI(TAG, "No bridge configured, will discover via mDNS");
+        ui_set_message("Bridge: Searching...");
+        return false;  // No bridge to test yet
+    }
+
+    ESP_LOGI(TAG, "Testing bridge: %s", cfg.bridge_base);
+    ui_set_message("Bridge: Testing...");
+
+    // Test /zones endpoint
+    char url[256];
+    snprintf(url, sizeof(url), "%s/zones", cfg.bridge_base);
+
+    char *response = NULL;
+    size_t response_len = 0;
+    int result = platform_http_get(url, &response, &response_len);
+    platform_http_free(response);
+
+    if (result == 0 && response_len > 0) {
+        ESP_LOGI(TAG, "✓ Bridge reachable: %s (%zu bytes)", cfg.bridge_base, response_len);
+        ui_set_message("Bridge: Connected");
+        return true;
     } else {
-        ESP_LOGE(TAG, "✗ %s (%s) failed (%d)", label, url, result);
+        ESP_LOGW(TAG, "✗ Bridge unreachable: %s (error %d)", cfg.bridge_base, result);
+        ui_set_message("Bridge: Unreachable");
+        return false;
     }
-}
-
-static void test_http_connectivity(void) {
-    ESP_LOGI(TAG, "=== Testing HTTP connectivity ===");
-    ui_set_message("Testing connection to bridge...");
-
-    const struct {
-        const char *label;
-        const char *url;
-    } tests[] = {
-        { "Public endpoint", "http://httpbin.org/get" },
-        { "Bridge /zones", "http://192.168.1.2:8088/zones" },
-        { "Bridge /status", "http://192.168.1.2:8088/status" },
-        { "Bridge /now_playing/mock", "http://192.168.1.2:8088/now_playing/mock" },
-    };
-
-    for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); ++i) {
-        ESP_LOGI(TAG, "Test %zu: %s", i + 1, tests[i].label);
-        char *response = NULL;
-        size_t response_len = 0;
-        int result = platform_http_get(tests[i].url, &response, &response_len);
-        report_http_result(tests[i].label, result, tests[i].url, response_len);
-        platform_http_free(response);
-    }
-
-    ESP_LOGI(TAG, "=== HTTP connectivity test complete ===");
 }
 
 void rk_net_evt_cb(rk_net_evt_t evt, const char *ip_opt) {
     // Notify UI about network events
     ui_network_on_event(evt, ip_opt);
 
-    if (evt == RK_NET_EVT_CONNECTING) {
-        ui_set_message("Initializing Wi-Fi...");
-    }
+    switch (evt) {
+    case RK_NET_EVT_CONNECTING:
+        ESP_LOGI(TAG, "WiFi: Connecting...");
+        ui_set_message("WiFi: Connecting...");
+        break;
 
-    // Notify roon_client when network is ready
-    if (evt == RK_NET_EVT_GOT_IP) {
-        ESP_LOGI(TAG, "WiFi connected with IP: %s - enabling HTTP", ip_opt ? ip_opt : "unknown");
+    case RK_NET_EVT_GOT_IP:
+        ESP_LOGI(TAG, "WiFi connected with IP: %s", ip_opt ? ip_opt : "unknown");
 
-        // Run connectivity test to diagnose network issues
-        test_http_connectivity();
-
-        ui_set_message("Bridge is ready");
+        // Test bridge connectivity and show result
+        test_bridge_connectivity();
 
         roon_client_set_network_ready(true);
 
         // Check for firmware updates
         ESP_LOGI(TAG, "Checking for firmware updates...");
         ota_check_for_update();
-    } else if (evt == RK_NET_EVT_FAIL) {
-        ui_set_message("Network unavailable");
+        break;
+
+    case RK_NET_EVT_FAIL:
+        ESP_LOGW(TAG, "WiFi: Connection failed, retrying...");
+        ui_set_message("WiFi: Retrying...");
         roon_client_set_network_ready(false);
+        break;
+
+    case RK_NET_EVT_AP_STARTED:
+        ESP_LOGI(TAG, "WiFi: AP mode started (SSID: roon-knob-setup)");
+        ui_set_message("WiFi: Setup Mode");
+        roon_client_set_network_ready(false);
+        break;
+
+    case RK_NET_EVT_AP_STOPPED:
+        ESP_LOGI(TAG, "WiFi: AP mode stopped, connecting to network...");
+        ui_set_message("WiFi: Connecting...");
+        break;
+
+    default:
+        break;
     }
 }
 

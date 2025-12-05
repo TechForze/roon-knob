@@ -2,6 +2,7 @@ set(SRC_FILES
     "main_idf.c"
     "wifi_manager.c"
     "captive_portal.c"
+    "dns_server.c"
     "ui_network.c"
     "platform_display_idf.c"
     "display_sleep.c"

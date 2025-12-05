@@ -50,10 +50,11 @@ bool platform_storage_load(rk_cfg_t *out) {
         return false;
     }
     ensure_version(out);
-    strncpy(out->bridge_base, CONFIG_RK_DEFAULT_BRIDGE_BASE, sizeof(out->bridge_base) - 1);
-    out->bridge_base[sizeof(out->bridge_base) - 1] = '\0';
-    ESP_LOGI(TAG, "Loaded config: bridge=%s zone=%s (bridge from Kconfig, zone from NVS)",
-             out->bridge_base, out->zone_id[0] ? out->zone_id : "(empty)");
+    // Keep bridge_base from NVS if present; app_entry() will try mDNS first
+    // and fall back to CONFIG_RK_DEFAULT_BRIDGE_BASE if needed
+    ESP_LOGI(TAG, "Loaded config: bridge=%s zone=%s",
+             out->bridge_base[0] ? out->bridge_base : "(empty, will use mDNS/default)",
+             out->zone_id[0] ? out->zone_id : "(empty)");
 
     return true;
 }
@@ -88,12 +89,10 @@ void platform_storage_defaults(rk_cfg_t *out) {
         return;
     }
     memset(out, 0, sizeof(*out));
-    // Use Kconfig default for bridge_base
-    strncpy(out->bridge_base, CONFIG_RK_DEFAULT_BRIDGE_BASE, sizeof(out->bridge_base) - 1);
+    // Leave bridge_base empty - mDNS discovery is the primary method
+    // wifi_manager will fill SSID/pass from Kconfig defaults
     // zone_id is left empty - user will select from available zones
-    // Leave SSID/pass empty; wifi_manager will fill these from Kconfig
-    ESP_LOGI(TAG, "Applied defaults from Kconfig: bridge=%s (zone will be selected from available zones)",
-             CONFIG_RK_DEFAULT_BRIDGE_BASE);
+    ESP_LOGI(TAG, "Applied defaults (bridge will be discovered via mDNS)");
     out->cfg_ver = RK_CFG_CURRENT_VER;
 }
 

@@ -1,20 +1,20 @@
 # Roon Knob
 
-A physical volume knob and now-playing display for [Roon](https://roon.app).
+Custom firmware and a Roon extension that turn a [Waveshare ESP32-S3 Knob](https://www.waveshare.com/esp32-s3-knob-touch-lcd-1.8.htm) into a dedicated Roon controller.
 
-Turn a ~$30 off-the-shelf ESP32 gadget into a dedicated Roon controller. See what's playing, adjust volume, skip tracks, and switch zones—all without touching your phone or computer.
+See what's playing, adjust volume, skip tracks, and switch zones—all from a physical knob on your desk.
 
 ## What You Need
 
-1. **Hardware**: [Waveshare ESP32-S3-Knob-Touch-LCD-1.8](https://www.waveshare.com/esp32-s3-knob-touch-lcd-1.8.htm) (~$30)
+1. **Hardware**: [Waveshare ESP32-S3-Knob-Touch-LCD-1.8](https://www.waveshare.com/esp32-s3-knob-touch-lcd-1.8.htm) (~$50)
 2. **Roon Core** running on your network
-3. **Docker host** (NAS, Raspberry Pi, always-on computer) to run the bridge
+3. **Docker host** (NAS, Raspberry Pi, always-on computer) to run the Roon extension
 
 ## Quick Start
 
-### 1. Run the Bridge
+### 1. Run the Roon Extension
 
-The bridge connects Roon to your knob. On your Docker host:
+The extension connects Roon to your knob. On your Docker host:
 
 ```yaml
 # docker-compose.yml
@@ -42,7 +42,7 @@ Go to **Roon → Settings → Extensions** and enable **"Roon Knob Bridge"**.
 
 Power on the knob. It creates a WiFi network called **"roon-knob-setup"**. Connect to it, enter your WiFi credentials, and you're done.
 
-The knob finds the bridge automatically via mDNS.
+The knob finds the extension automatically via mDNS.
 
 ## Controls
 
@@ -68,10 +68,10 @@ The knob finds the bridge automatically via mDNS.
 | Display shows | Meaning |
 |---------------|---------|
 | "WiFi: Setup Mode" | Connect to "roon-knob-setup" network to configure WiFi |
-| "Bridge: Searching..." | Looking for the bridge—make sure it's running |
-| "Bridge: Connected" | Ready to use |
+| "Extension: Searching..." | Looking for the extension—make sure it's running |
+| "Extension: Connected" | Ready to use |
 
-If mDNS doesn't work on your network, enter the bridge URL manually in Settings (long-press zone name).
+If mDNS doesn't work on your network, enter the extension URL manually in Settings (long-press zone name).
 
 ## Development
 

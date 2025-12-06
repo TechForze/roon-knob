@@ -4,6 +4,9 @@ Custom firmware and a Roon extension that turn a [Waveshare ESP32-S3 Knob](https
 
 See what's playing, adjust volume, skip tracks, and switch zones—all from a physical knob on your desk.
 
+[![Roon Knob demo](docs/images/roon-knob-photo.jpg)](https://photos.app.goo.gl/s5LpWqBTaXRihmjh7)
+*Click to watch video demo*
+
 ## What You Need
 
 1. **Hardware**: [Waveshare ESP32-S3-Knob-Touch-LCD-1.8](https://www.waveshare.com/esp32-s3-knob-touch-lcd-1.8.htm) (~$50)

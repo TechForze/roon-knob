@@ -81,6 +81,7 @@ lv_display_set_buffers(display, buf1, buf2, buf_size, LV_DISPLAY_RENDER_MODE_PAR
 ```
 
 Key points:
+
 - `MALLOC_CAP_DMA` - Buffer must be in DMA-capable memory for SPI transfers
 - `MALLOC_CAP_INTERNAL` - Use internal RAM (faster than PSRAM)
 - `LVGL_BUF_HEIGHT = 36` - Buffer holds 36 rows (1/10th of display) to save RAM
@@ -182,6 +183,7 @@ ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 ```
 
 The firmware defines brightness levels in Kconfig:
+
 - `CONFIG_RK_BACKLIGHT_NORMAL` - Active brightness
 - `CONFIG_RK_BACKLIGHT_DIM` - Dimmed brightness after inactivity
 
@@ -197,6 +199,7 @@ The display has four states managed by `display_sleep.c`:
 | `DISPLAY_STATE_SLEEP` | Off | Off | Deep sleep after extended inactivity |
 
 State transitions are timer-driven:
+
 - Activity detected → reset timers, wake if sleeping
 - Dim timeout → transition to DIM
 - Sleep timeout → transition to SLEEP

@@ -14,6 +14,7 @@ Swipe gestures are implemented in software on top of the raw touch coordinates. 
 ```
 
 A valid swipe must:
+
 - Travel at least 60 pixels from start to end
 - Complete within 500ms
 - Move more in the primary direction than perpendicular
@@ -142,11 +143,13 @@ Art mode hides the control UI and shows fullscreen album artwork.
 ## Coordinate System
 
 Screen coordinates follow standard convention:
+
 - Origin (0,0) at top-left
 - X increases rightward
 - Y increases downward
 
 So:
+
 - **Swipe up** = finger moves toward top of screen = negative dy
 - **Swipe down** = finger moves toward bottom = positive dy
 
@@ -179,6 +182,7 @@ For multi-finger gestures (pinch, rotate), you'd need a touch controller that re
 ## Interaction with LVGL Widgets
 
 Swipe detection runs in parallel with LVGL's input handling. A swipe that starts on a button will:
+
 1. Trigger `LV_EVENT_PRESSED` on the button
 2. Trigger `LV_EVENT_PRESS_LOST` as finger moves away
 3. Trigger the swipe action on release

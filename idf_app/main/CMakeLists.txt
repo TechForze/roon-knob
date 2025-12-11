@@ -14,6 +14,7 @@ set(SRC_FILES
     "platform_input_idf.c"
     "battery.c"
     "ota_update.c"
+    "ble_hid_client.c"
     "../../common/app_main.c"
     "../../common/roon_client.c"
     "../../common/ui.c"
@@ -21,6 +22,7 @@ set(SRC_FILES
     "../../common/platform/platform_log.c"
     "../../common/platform/platform_time.c"
     "../../common/platform/platform_task.c"
+    "../../common/controller_mode.c"
 )
 
 # Suppress component validation warnings - these are ESP-IDF internal circular dependencies
@@ -58,3 +60,9 @@ idf_component_register(
 set_property(TARGET ${COMPONENT_LIB} PROPERTY C_STANDARD 11)
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE TARGET_PC=0)
+
+# Conditionally link BLE HID when enabled
+if(CONFIG_ROON_KNOB_BLE_HID_ENABLED)
+    idf_component_get_property(ble_hid_lib ble_hid COMPONENT_LIB)
+    target_link_libraries(${COMPONENT_LIB} PRIVATE ${ble_hid_lib})
+endif()

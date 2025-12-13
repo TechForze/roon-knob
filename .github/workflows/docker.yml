@@ -11,8 +11,8 @@ permissions:
   contents: write
 
 jobs:
-  build-firmware:
-    name: Build Firmware
+  build-esp32s3:
+    name: Build ESP32-S3 Firmware
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,28 +44,112 @@ jobs:
           }
           EOF
 
-      - name: Upload firmware artifact
+      - name: Upload ESP32-S3 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
+          name: esp32s3-firmware
           path: |
-            roon-extension/firmware/roon_knob.bin
+            idf_app/build/roon_knob.bin
             roon-extension/firmware/version.json
           retention-days: 30
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
+  build-esp32bt:
+    name: Build ESP32 Bluetooth Firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
         with:
-          files: roon-extension/firmware/roon_knob.bin
+          esp_idf_version: release-v5.4
+          target: esp32
+          path: esp32_bt
+
+      - name: Upload ESP32 BT artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32bt-firmware
+          path: esp32_bt/build/esp32_bt.bin
+          retention-days: 30
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-esp32s3, build-esp32bt]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ESP32-S3 firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: esp32s3-firmware
+          path: release-assets
+
+      - name: Download ESP32 BT firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: esp32bt-firmware
+          path: release-assets
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            release-assets/roon_knob.bin
+            release-assets/esp32_bt.bin
+          body: |
+            ## Flashing Instructions
+
+            This release includes **two firmware files** for the dual-chip board:
+
+            | File | Chip | USB Orientation | Port (macOS) |
+            |------|------|-----------------|--------------|
+            | `roon_knob.bin` | ESP32-S3 (main) | Normal | `/dev/cu.usbmodem*` |
+            | `esp32_bt.bin` | ESP32 (Bluetooth) | Flipped 180° | `/dev/cu.usbserial-*` |
+
+            ### Identifying the correct port
+
+            The two chips appear as **different USB devices**:
+            - **ESP32-S3**: Shows as `usbmodem` (native USB)
+            - **ESP32**: Shows as `usbserial` (USB-UART bridge)
+
+            ```bash
+            # List ports (macOS)
+            ls /dev/cu.usb*
+
+            # List ports (Linux)
+            ls /dev/ttyUSB* /dev/ttyACM*
+            ```
+
+            ### First-time setup (both chips required)
+
+            1. **Flash ESP32-S3** (USB-C in normal orientation):
+               ```bash
+               esptool.py --chip esp32s3 -p /dev/cu.usbmodem2101 write_flash 0x0 roon_knob.bin
+               ```
+
+            2. **Flip USB-C connector 180°** (physically rotate the cable)
+
+            3. **Flash ESP32** (USB-C now flipped):
+               ```bash
+               esptool.py --chip esp32 -p /dev/cu.usbserial-210 write_flash 0x0 esp32_bt.bin
+               ```
+
+            ### Routine updates (ESP32-S3 only)
+
+            For most updates, only the ESP32-S3 firmware changes. The Bluetooth firmware rarely needs updating.
+
+            ---
 
   docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: build-firmware
+    needs: build-esp32s3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,7 +157,7 @@ jobs:
       - name: Download firmware
         uses: actions/download-artifact@v4
         with:
-          name: firmware
+          name: esp32s3-firmware
           path: roon-extension/firmware/
 
       - name: Set up QEMU
@@ -99,7 +183,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            # Only stable releases (no hyphen) get latest tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             # Edge tag for master branch
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/master' }}
             # PR tags

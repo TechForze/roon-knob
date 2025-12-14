@@ -24,6 +24,10 @@
 #define POLL_DELAY_AWAKE_MS 1000     // 1 second when display is on
 #define POLL_DELAY_SLEEPING_MS 30000  // 30 seconds when display is sleeping
 
+// Special zone picker options (not actual zones)
+#define ZONE_ID_BACK "__back__"
+#define ZONE_ID_SETTINGS "__settings__"
+
 struct now_playing_state {
     char line1[MAX_LINE];
     char line2[MAX_LINE];
@@ -59,6 +63,9 @@ static bool s_last_net_ok;
 static bool s_network_ready;
 static bool s_force_artwork_refresh;  // Force artwork reload on zone change
 static int s_last_known_volume = 0;   // Cached volume for optimistic UI updates
+static bool s_bridge_verified = false;  // True after bridge found AND responded successfully
+static uint32_t s_last_mdns_check_ms = 0;  // Timestamp of last mDNS check
+#define MDNS_RECHECK_INTERVAL_MS (3600 * 1000)  // Re-check mDNS every hour if bridge stops responding
 
 static void lock_state(void) {
     os_mutex_lock(&s_state_lock);
@@ -285,18 +292,24 @@ static void maybe_update_bridge_base(void) {
         LOGW("mDNS returned non-numeric host: %s (ignoring)", discovered);
     }
 
-    // If no bridge is configured yet, fall back to compile-time default
+    // If no bridge is configured yet, check for compile-time default
     lock_state();
     bool need_default = (s_state.cfg.bridge_base[0] == '\0');
     unlock_state();
 
     if (need_default) {
-        LOGI("mDNS discovery failed, using fallback: %s", CONFIG_RK_DEFAULT_BRIDGE_BASE);
-        lock_state();
-        strncpy(s_state.cfg.bridge_base, CONFIG_RK_DEFAULT_BRIDGE_BASE, sizeof(s_state.cfg.bridge_base) - 1);
-        s_state.cfg.bridge_base[sizeof(s_state.cfg.bridge_base) - 1] = '\0';
-        // Don't save the fallback - let mDNS retry on next poll
-        unlock_state();
+        // Check if there's a compile-time fallback configured
+        if (CONFIG_RK_DEFAULT_BRIDGE_BASE[0] != '\0') {
+            LOGI("mDNS discovery failed, using fallback: %s", CONFIG_RK_DEFAULT_BRIDGE_BASE);
+            lock_state();
+            strncpy(s_state.cfg.bridge_base, CONFIG_RK_DEFAULT_BRIDGE_BASE, sizeof(s_state.cfg.bridge_base) - 1);
+            s_state.cfg.bridge_base[sizeof(s_state.cfg.bridge_base) - 1] = '\0';
+            // Don't save the fallback - let mDNS retry on next poll
+            unlock_state();
+        } else {
+            // No fallback configured - user needs to configure bridge manually
+            LOGW("mDNS discovery failed and no fallback configured - use Settings to configure bridge");
+        }
     }
 }
 
@@ -586,7 +599,17 @@ static void roon_poll_thread(void *arg) {
             continue;
         }
 
-        maybe_update_bridge_base();
+        // Only run mDNS discovery if:
+        // 1. We haven't verified a working bridge yet, OR
+        // 2. It's been over an hour since last check (in case bridge IP changed)
+        uint32_t now_ms = (uint32_t)platform_millis();
+        bool should_check_mdns = !s_bridge_verified ||
+            (now_ms - s_last_mdns_check_ms > MDNS_RECHECK_INTERVAL_MS);
+        if (should_check_mdns) {
+            maybe_update_bridge_base();
+            s_last_mdns_check_ms = now_ms;
+        }
+
         if (!s_state.zone_resolved) {
             refresh_zone_label(true);
         }
@@ -596,13 +619,15 @@ static void roon_poll_thread(void *arg) {
 
         // Show meaningful status messages for state transitions
         if (ok && !s_last_net_ok) {
-            // Just connected to bridge - clear network status
+            // Just connected to bridge - clear network status and mark as verified
             post_ui_message("Bridge: Connected");
             ui_set_network_status(NULL);  // Clear persistent status on success
+            s_bridge_verified = true;  // Stop frequent mDNS queries
         } else if (!ok && s_last_net_ok) {
-            // Lost connection to bridge
+            // Lost connection to bridge - resume mDNS checks
             post_ui_message("Bridge: Offline");
             ui_set_network_status("Bridge: Offline - check connection");
+            s_bridge_verified = false;  // Resume mDNS discovery
         } else if (!ok && !s_last_net_ok) {
             // Still trying to connect - check if we have a bridge URL
             lock_state();
@@ -644,7 +669,7 @@ void roon_client_start(const rk_cfg_t *cfg) {
     platform_task_init();
     lock_state();
     s_state.cfg = *cfg;
-    strncpy(s_state.zone_label, cfg->zone_id[0] ? cfg->zone_id : "Press knob to select zone", sizeof(s_state.zone_label) - 1);
+    strncpy(s_state.zone_label, cfg->zone_id[0] ? cfg->zone_id : "Tap here to select zone", sizeof(s_state.zone_label) - 1);
     s_state.zone_label[sizeof(s_state.zone_label) - 1] = '\0';
     unlock_state();
     s_running = true;
@@ -666,6 +691,19 @@ void roon_client_handle_input(ui_input_event_t event) {
             char selected_id[MAX_ZONE_NAME] = {0};
             ui_zone_picker_get_selected_id(selected_id, sizeof(selected_id));
             LOGI("Zone picker: selected zone id '%s'", selected_id);
+
+            // Check for special options first
+            if (strcmp(selected_id, ZONE_ID_BACK) == 0) {
+                LOGI("Zone picker: Back selected");
+                ui_hide_zone_picker();
+                return;
+            }
+            if (strcmp(selected_id, ZONE_ID_SETTINGS) == 0) {
+                LOGI("Zone picker: Settings selected");
+                ui_hide_zone_picker();
+                ui_show_settings();
+                return;
+            }
 
             // Check if Bluetooth was selected
             if (controller_mode_is_bluetooth_zone(selected_id)) {
@@ -727,25 +765,35 @@ void roon_client_handle_input(ui_input_event_t event) {
     }
 
     if (event == UI_INPUT_MENU) {
-        const char *names[MAX_ZONES + 1];  /* +1 for Bluetooth */
-        const char *ids[MAX_ZONES + 1];
+        const char *names[MAX_ZONES + 4];  /* +4 for Back, Bluetooth, Settings, margin */
+        const char *ids[MAX_ZONES + 4];
+        static const char *back_name = "< Back";
+        static const char *back_id = ZONE_ID_BACK;
         static const char *bt_name = "Bluetooth";
         static const char *bt_id = ZONE_ID_BLUETOOTH;
-        int selected = 0;
+        static const char *settings_name = "Settings...";
+        static const char *settings_id = ZONE_ID_SETTINGS;
+        int selected = 1;  /* Default to first zone after Back */
         int count = 0;
+
+        /* Add Back as first option */
+        names[count] = back_name;
+        ids[count] = back_id;
+        count++;
+
         lock_state();
         if (s_state.zone_count > 0) {
-            count = s_state.zone_count;
-            for (int i = 0; i < s_state.zone_count; ++i) {
-                names[i] = s_state.zones[i].name;
-                ids[i] = s_state.zones[i].id;
+            for (int i = 0; i < s_state.zone_count && count < MAX_ZONES + 2; ++i) {
+                names[count] = s_state.zones[i].name;
+                ids[count] = s_state.zones[i].id;
                 if (strcmp(s_state.zones[i].id, s_state.cfg.zone_id) == 0) {
-                    selected = i;
+                    selected = count;
                 }
+                count++;
             }
         }
-        /* Add Bluetooth as last option if available */
-        if (controller_mode_bluetooth_available() && count < MAX_ZONES) {
+        /* Add Bluetooth option if available */
+        if (controller_mode_bluetooth_available() && count < MAX_ZONES + 3) {
             names[count] = bt_name;
             ids[count] = bt_id;
             /* Select Bluetooth if currently in BT mode */
@@ -755,11 +803,13 @@ void roon_client_handle_input(ui_input_event_t event) {
             count++;
         }
         unlock_state();
-        if (count > 0) {
-            ui_show_zone_picker(names, ids, count, selected);
-        } else {
-            post_ui_message("No zones available");
-        }
+
+        /* Add Settings as last option */
+        names[count] = settings_name;
+        ids[count] = settings_id;
+        count++;
+
+        ui_show_zone_picker(names, ids, count, selected);
         return;
     }
 
@@ -846,4 +896,11 @@ const char* roon_client_get_artwork_url(char *url_buf, size_t buf_len, int width
     unlock_state();
 
     return url_buf;
+}
+
+bool roon_client_is_ready_for_art_mode(void) {
+    lock_state();
+    bool ready = s_state.zone_count > 0;
+    unlock_state();
+    return ready;
 }

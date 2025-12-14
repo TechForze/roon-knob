@@ -156,7 +156,19 @@ jobs:
           # Append template with version substituted
           sed "s/{{VERSION}}/$VERSION/g" .github/RELEASE_TEMPLATE.md >> final_body.md
 
-      - name: Create Release
+      - name: Check if release exists
+        id: check_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_EXISTS=$(gh release view ${{ github.ref_name }} --json assets --jq '.assets | length' 2>/dev/null || echo "0")
+          echo "existing_assets=$RELEASE_EXISTS" >> $GITHUB_OUTPUT
+          if [ "$RELEASE_EXISTS" -gt "0" ]; then
+            echo "Release already exists with $RELEASE_EXISTS assets, will only upload missing files"
+          fi
+
+      - name: Create or Update Release
+        if: steps.check_release.outputs.existing_assets == '0'
         uses: softprops/action-gh-release@v2
         with:
           draft: false
@@ -165,6 +177,22 @@ jobs:
             release-assets/roon_knob.bin
             release-assets/esp32_bt.bin
           body_path: final_body.md
+
+      - name: Upload assets to existing release
+        if: steps.check_release.outputs.existing_assets != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Upload any missing assets
+          for file in release-assets/*; do
+            filename=$(basename "$file")
+            if ! gh release view ${{ github.ref_name }} --json assets --jq ".assets[].name" | grep -q "^${filename}$"; then
+              echo "Uploading $filename..."
+              gh release upload ${{ github.ref_name }} "$file" --clobber
+            else
+              echo "$filename already exists, skipping"
+            fi
+          done
 
   docker:
     name: Build and Push Docker Image

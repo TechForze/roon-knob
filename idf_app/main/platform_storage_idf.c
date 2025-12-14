@@ -50,11 +50,12 @@ bool platform_storage_load(rk_cfg_t *out) {
         return false;
     }
     ensure_version(out);
-    // Keep bridge_base from NVS if present; app_entry() will try mDNS first
-    // and fall back to CONFIG_RK_DEFAULT_BRIDGE_BASE if needed
-    ESP_LOGI(TAG, "Loaded config: bridge=%s zone=%s",
-             out->bridge_base[0] ? out->bridge_base : "(empty, will use mDNS/default)",
-             out->zone_id[0] ? out->zone_id : "(empty)");
+    // Log all fields for debugging
+    ESP_LOGI(TAG, "Loaded config: ssid='%s' bridge='%s' zone='%s' ver=%d",
+             out->ssid[0] ? out->ssid : "(empty)",
+             out->bridge_base[0] ? out->bridge_base : "(empty)",
+             out->zone_id[0] ? out->zone_id : "(empty)",
+             out->cfg_ver);
 
     return true;
 }
@@ -65,6 +66,13 @@ bool platform_storage_save(const rk_cfg_t *in) {
     }
     rk_cfg_t copy = *in;
     ensure_version(&copy);
+
+    ESP_LOGI(TAG, "Saving config: ssid='%s' bridge='%s' zone='%s' ver=%d",
+             copy.ssid[0] ? copy.ssid : "(empty)",
+             copy.bridge_base[0] ? copy.bridge_base : "(empty)",
+             copy.zone_id[0] ? copy.zone_id : "(empty)",
+             copy.cfg_ver);
+
     esp_err_t err;
     nvs_handle_t handle;
     err = open_ns(&handle, NVS_READWRITE);
@@ -73,14 +81,36 @@ bool platform_storage_save(const rk_cfg_t *in) {
         return false;
     }
     err = nvs_set_blob(handle, KEY, &copy, sizeof(copy));
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "nvs save failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "nvs_set_blob failed: %s", esp_err_to_name(err));
+        nvs_close(handle);
         return false;
     }
+    ESP_LOGI(TAG, "nvs_set_blob OK, committing...");
+
+    err = nvs_commit(handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_commit failed: %s", esp_err_to_name(err));
+        nvs_close(handle);
+        return false;
+    }
+    ESP_LOGI(TAG, "nvs_commit OK");
+    nvs_close(handle);
+
+    // Verify by reading back
+    rk_cfg_t verify = {0};
+    if (!platform_storage_load(&verify)) {
+        ESP_LOGE(TAG, "VERIFY FAILED: Could not read back saved config!");
+        return false;
+    }
+
+    if (strcmp(verify.ssid, copy.ssid) != 0) {
+        ESP_LOGE(TAG, "VERIFY FAILED: SSID mismatch! saved='%s' read='%s'",
+                 copy.ssid, verify.ssid);
+        return false;
+    }
+
+    ESP_LOGI(TAG, "VERIFY OK: Config saved and verified successfully");
     return true;
 }
 

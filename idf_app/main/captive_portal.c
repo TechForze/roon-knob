@@ -2,6 +2,7 @@
 #include "dns_server.h"
 #include "wifi_manager.h"
 #include "platform/platform_storage.h"
+#include "ui.h"
 
 #include <string.h>
 #include <esp_log.h>
@@ -166,6 +167,10 @@ static esp_err_t configure_post_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Configuring WiFi: SSID='%s', bridge='%s'", ssid,
              bridge[0] ? bridge : "(auto-discover)");
 
+    // Show "Saving..." on display
+    ui_update("Saving...", "", false, 0, 0, 100, 0, 0);
+    vTaskDelay(pdMS_TO_TICKS(500));
+
     // Load current config, update WiFi credentials, save
     rk_cfg_t cfg = {0};
     platform_storage_load(&cfg);
@@ -178,23 +183,51 @@ static esp_err_t configure_post_handler(httpd_req_t *req) {
     // If bridge is empty, leave cfg.bridge_base as-is (mDNS will discover)
     cfg.cfg_ver = 1;  // Mark as configured
 
-    if (!platform_storage_save(&cfg)) {
-        ESP_LOGE(TAG, "Failed to save config");
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to save");
-        return ESP_FAIL;
-    }
+    bool save_ok = platform_storage_save(&cfg);
 
-    // Send success response
+    // Send HTTP response first (so browser doesn't show error)
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, HTML_SUCCESS, strlen(HTML_SUCCESS));
 
-    ESP_LOGI(TAG, "Credentials saved, rebooting in 2 seconds...");
+    if (!save_ok) {
+        ESP_LOGE(TAG, "Failed to save config");
+        // Show error on display
+        ui_update("SAVE FAILED!", "Check serial log", false, 0, 0, 100, 0, 0);
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        // Don't reboot - let user see the error
+        return ESP_FAIL;
+    }
 
-    // Delay to let HTTP response complete before rebooting
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    ESP_LOGI(TAG, "Credentials saved, showing countdown...");
 
-    // Reboot to apply new WiFi credentials cleanly
-    ESP_LOGI(TAG, "Rebooting...");
+    // Build status strings
+    char ssid_status[48];
+    char bridge_status[48];
+    snprintf(ssid_status, sizeof(ssid_status), "SSID: %s", ssid);
+    if (bridge[0]) {
+        snprintf(bridge_status, sizeof(bridge_status), "Bridge: %.20s...", bridge);
+    } else {
+        snprintf(bridge_status, sizeof(bridge_status), "Bridge: auto-discover");
+    }
+
+    // Countdown with alternating status display
+    for (int i = 5; i >= 1; i--) {
+        char countdown[32];
+        snprintf(countdown, sizeof(countdown), "Rebooting in %d...", i);
+
+        // Alternate between showing SSID and bridge status
+        const char *status = (i % 2 == 1) ? ssid_status : bridge_status;
+
+        ui_update(status, countdown, false, 0, 0, 100, 0, 0);
+        ESP_LOGI(TAG, "%s | %s", countdown, status);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    // Final message before reboot
+    ui_update("Rebooting...", "Please wait", false, 0, 0, 100, 0, 0);
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    ESP_LOGI(TAG, "Rebooting now...");
     esp_restart();
 
     return ESP_OK;  // Never reached

@@ -186,24 +186,27 @@ static void mode_change_callback(controller_mode_t new_mode, void *user_data) {
     ESP_LOGI(TAG, "Controller mode changed to: %s", controller_mode_name(new_mode));
 
     if (new_mode == CONTROLLER_MODE_BLUETOOTH) {
-        // Bluetooth mode uses ESP32 chip (BLE HID + AVRCP via UART)
-        // Stop WiFi to free radio for ESP32 Bluetooth communication
+        // === ENTERING BLUETOOTH MODE ===
+        // Stop all WiFi-related activity
         ESP_LOGI(TAG, "Stopping WiFi for Bluetooth mode");
+        stop_wifi_msg_alternation();  // Stop WiFi error display timer
         roon_client_set_network_ready(false);
         wifi_mgr_stop();
+
         // Activate Bluetooth on ESP32 (on-demand activation)
         ESP_LOGI(TAG, "Activating Bluetooth on ESP32");
         esp32_comm_send_bt_activate();
         ui_set_ble_mode(true);
         ui_set_input_handler(bt_input_handler);
     } else {
-        // Switch to Roon mode
+        // === ENTERING ROON/WIFI MODE ===
         // Deactivate Bluetooth on ESP32 to save power
         ESP_LOGI(TAG, "Deactivating Bluetooth on ESP32");
         esp32_comm_send_bt_deactivate();
         ui_set_ble_mode(false);
         ui_set_input_handler(roon_client_handle_input);
-        // Start WiFi if it was stopped
+
+        // Start WiFi
         ESP_LOGI(TAG, "Starting WiFi for Roon mode");
         wifi_mgr_start();
         // Network ready will be set when WiFi connects (via RK_NET_EVT_GOT_IP)

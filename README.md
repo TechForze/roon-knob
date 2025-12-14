@@ -89,22 +89,29 @@ The knob finds the extension automatically via mDNS.
 
 ## Bluetooth Mode
 
-When you're away from your Roon setup, the knob can control any Bluetooth audio device (phone, DAP, etc.) via BLE HID.
+When you're away from your Roon setup, the knob can control any Bluetooth audio device (phone, DAP, etc.).
 
 **To enter Bluetooth mode:**
 1. Press the knob to open the zone picker
 2. Select "Bluetooth" from the zone list
-3. Pair your phone/DAP with "Roon Knob" (appears as a Bluetooth keyboard)
+3. Pair your phone/DAP with two Bluetooth devices:
+   - **"Knob control"** (BLE HID) - for sending commands to your device
+   - **"Knob info"** (Classic BT) - for receiving track metadata from your device
 
 **Controls in Bluetooth mode:**
 - Turn knob: Volume up/down
 - Tap screen: Play/pause
 - Swipe left/right: Previous/next track
 
+**What you'll see:**
+- With both connections: Full control + track info (title, artist, album, progress)
+- With "Knob control" only: Full control, but no track metadata
+- With "Knob info" only: Track info displayed, but controls won't work
+
 **To exit Bluetooth mode:**
 - Press the knob and confirm "Exit Bluetooth"
 
-**Note:** The knob uses a separate ESP32 chip for Bluetooth. When switching to Bluetooth mode, WiFi is disabled to save power.
+**Note:** The knob uses a separate ESP32 chip for Bluetooth. WiFi is disabled in Bluetooth mode to save power.
 
 ## Troubleshooting
 

@@ -5,8 +5,10 @@
 #include <esp_event.h>
 #include <esp_log.h>
 #include <esp_netif.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <esp_wifi.h>
+#include <nvs_flash.h>
 #include <string.h>
 
 #include "sdkconfig.h"
@@ -322,13 +324,23 @@ void wifi_mgr_reconnect(const rk_cfg_t *cfg) {
 }
 
 void wifi_mgr_forget_wifi(void) {
-    platform_storage_reset_wifi_only(&s_cfg);
-    s_cfg_loaded = false;
-    ensure_cfg_loaded();
-    reset_backoff();
+    ESP_LOGW(TAG, "Factory reset requested - erasing NVS and rebooting");
+
+    // Stop WiFi first
     if (s_started) {
-        connect_now();
+        esp_wifi_stop();
     }
+
+    // Erase all NVS data (WiFi credentials, config, everything)
+    esp_err_t err = nvs_flash_erase();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS erase failed: %s", esp_err_to_name(err));
+    }
+
+    // Reboot - device will start fresh with captive portal
+    ESP_LOGI(TAG, "Rebooting...");
+    esp_restart();
+    // Never returns
 }
 
 bool wifi_mgr_get_ip(char *buf, size_t n) {

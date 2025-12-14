@@ -111,7 +111,10 @@ When you're away from your Roon setup, the knob can control any Bluetooth audio 
 **To exit Bluetooth mode:**
 - Press the knob and confirm "Exit Bluetooth"
 
-**Note:** The knob uses a separate ESP32 chip for Bluetooth. WiFi is disabled in Bluetooth mode to save power.
+**Compatibility notes:**
+- Some devices (especially DAPs) can only connect to one Bluetooth profile at a time. In that case, connect "Knob control" for controls and skip "Knob info".
+- The AVRCP implementation is controller-only (no audio sink), which may not work with all devices. This is why metadata is an optional second connection.
+- WiFi is disabled in Bluetooth mode to save power.
 
 ## Troubleshooting
 

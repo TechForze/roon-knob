@@ -145,11 +145,11 @@ static void bridge_form_submit(lv_event_t *e) {
 static void forget_wifi_cb(lv_event_t *e) {
     (void)e;
     // Show feedback and hide settings panel
-    set_status_text("Resetting WiFi...");
+    set_status_text("Factory Reset...");
     if (s_widgets.panel) {
         lv_obj_add_flag(s_widgets.panel, LV_OBJ_FLAG_HIDDEN);
     }
-    // Clear WiFi and trigger AP mode
+    // Erase NVS and reboot - device will start fresh
     wifi_mgr_forget_wifi();
 }
 
@@ -403,8 +403,7 @@ static void ensure_panel(void) {
 
     create_button(s_widgets.panel, "Check for Update", check_update_cb);
     create_button(s_widgets.panel, "Test Bridge", test_bridge_cb);
-    create_button(s_widgets.panel, "Clear Bridge", clear_bridge_cb);
-    create_button(s_widgets.panel, "Forget Wi-Fi", forget_wifi_cb);
+    create_button(s_widgets.panel, "Factory Reset", forget_wifi_cb);
     create_button(s_widgets.panel, "Bluetooth Mode", bluetooth_mode_cb);
     create_button(s_widgets.panel, "Back", hide_panel_cb);
 }

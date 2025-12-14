@@ -34,9 +34,9 @@ fi
 
 NEW_VERSION="$1"
 
-# Validate version format
-if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-    echo "Error: Version must be semver format (e.g., 1.2.3)"
+# Validate version format (semver with optional pre-release)
+if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
+    echo "Error: Version must be semver format (e.g., 1.2.3 or 1.2.3-beta.1)"
     exit 1
 fi
 

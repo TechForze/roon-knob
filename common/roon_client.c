@@ -173,7 +173,7 @@ static void default_now_playing(struct now_playing_state *state) {
     if (!state) {
         return;
     }
-    snprintf(state->line1, sizeof(state->line1), "Waiting for data");
+    snprintf(state->line1, sizeof(state->line1), "Idle");
     state->line2[0] = '\0';
     state->is_playing = false;
     state->volume = 0;

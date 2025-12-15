@@ -37,6 +37,7 @@ static QueueHandle_t s_input_queue = NULL;
 // ============================================================================
 #define ENCODER_POLL_INTERVAL_MS 3      // Poll encoder every 3ms (matching hardware demo)
 #define ENCODER_DEBOUNCE_TICKS   2      // Debounce count
+#define ENCODER_BATCH_INTERVAL_MS 30    // Batch encoder ticks over 30ms window for velocity detection
 
 
 // ============================================================================
@@ -125,16 +126,14 @@ static void encoder_read_and_dispatch(void) {
     process_encoder_channel(phb_value, &s_encoder.encoder_b_level,
                            &s_encoder.debounce_b_cnt, &s_encoder.count_value, false);
 
-    // Detect count changes and queue events (ISR-safe)
+    // Dispatch immediately on any change (coalescing happens in main loop)
     int delta = s_encoder.count_value - last_count;
     if (delta != 0) {
-        ESP_LOGI(TAG, "Encoder count: %d (delta: %d)", s_encoder.count_value, delta);
         last_count = s_encoder.count_value;
 
-        ui_input_event_t input = (delta > 0) ? UI_INPUT_VOL_UP : UI_INPUT_VOL_DOWN;
-        // Use FromISR variant since this runs in esp_timer context
+        // Queue the delta - main loop will coalesce multiple deltas
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        xQueueSendFromISR(s_input_queue, &input, &xHigherPriorityTaskWoken);
+        xQueueSendFromISR(s_input_queue, &delta, &xHigherPriorityTaskWoken);
         if (xHigherPriorityTaskWoken) {
             portYIELD_FROM_ISR();
         }
@@ -177,8 +176,8 @@ static esp_err_t poll_timer_init(void) {
 void platform_input_init(void) {
     ESP_LOGI(TAG, "Initializing platform input (encoder only - touch handled by LVGL)");
 
-    // Create input event queue (holds up to 10 events)
-    s_input_queue = xQueueCreate(10, sizeof(ui_input_event_t));
+    // Create input event queue (holds up to 10 batched tick counts)
+    s_input_queue = xQueueCreate(10, sizeof(int));
     if (!s_input_queue) {
         ESP_LOGE(TAG, "Failed to create input event queue");
         return;
@@ -202,11 +201,19 @@ void platform_input_init(void) {
 }
 
 void platform_input_process_events(void) {
-    ui_input_event_t input;
-    // Process all queued events (non-blocking)
-    while (xQueueReceive(s_input_queue, &input, 0) == pdTRUE) {
+    int ticks;
+    int total_ticks = 0;
+
+    // Drain all queued batches and coalesce into single total
+    // This prevents HTTP request queue buildup when turning quickly
+    while (xQueueReceive(s_input_queue, &ticks, 0) == pdTRUE) {
+        total_ticks += ticks;
+    }
+
+    if (total_ticks != 0) {
         display_activity_detected();  // Wake display and reset sleep timers
-        ui_dispatch_input(input);
+        // Dispatch single volume rotation with coalesced tick count
+        ui_handle_volume_rotation(total_ticks);
     }
 }
 

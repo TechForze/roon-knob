@@ -86,6 +86,8 @@ gh pr merge --squash --delete-branch
 
 ### Merging and Releasing
 
+**ALWAYS test before shipping.** Never ask "test or ship?" - the answer is ALWAYS test first. Build the firmware, let the user flash and verify it works, then commit/merge/release.
+
 **ALWAYS ASK the user before:**
 - Merging a PR (`gh pr merge`)
 - Tagging a release (`git tag`)

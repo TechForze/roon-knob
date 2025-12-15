@@ -119,11 +119,11 @@ jobs:
           else
             # Fallback: generate notes via GitHub API
             echo "Draft empty or no PRs, generating from GitHub API..."
-            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-            if [ -z "$PREV_TAG" ]; then
-              # Fetch tags if shallow clone
-              git fetch --tags --depth=50 2>/dev/null || true
-              PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            # Get previous tag via GitHub API (more reliable than git in shallow clones)
+            PREV_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[].name' | grep '^v' | sort -V | grep -B1 "^${{ github.ref_name }}$" | head -1)
+            if [ "$PREV_TAG" = "${{ github.ref_name }}" ]; then
+              # Current tag is oldest, no previous
+              PREV_TAG=""
             fi
             echo "Previous tag: $PREV_TAG"
             if [ -n "$PREV_TAG" ]; then

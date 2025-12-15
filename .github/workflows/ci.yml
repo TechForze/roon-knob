@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-pc:
-    name: Build PC Simulator
+    name: build-pc
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

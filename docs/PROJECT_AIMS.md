@@ -12,6 +12,7 @@ It's also a **learning platform** for:
 - AI coding agents (Claude Code workflows)
 - Metacognitive agent review (superego)
 - Embedded systems development (ESP-IDF, LVGL, FreeRTOS)
+- UI/UX design on constrained devices
 - Roon extension development
 
 The learning value is as important as the product output. Experiments here inform how I work on other projects.

@@ -17,30 +17,105 @@ function extractKnob(req) {
   return { id, version };
 }
 
-function createRoutes({ bridge, metrics, logger }) {
+function createRoutes({ bridge, metrics, logger, knobs }) {
   const router = express.Router();
 
+  // Knob config endpoints
+  router.get('/knobs', (req, res) => {
+    logger?.debug('Knobs list requested', { ip: req.ip });
+    res.json({ knobs: knobs.listKnobs() });
+  });
+
+  router.get('/config/:knob_id', (req, res) => {
+    const knobId = req.params.knob_id;
+    const version = req.get('x-knob-version');
+    logger?.debug('Config requested', { knobId, version, ip: req.ip });
+
+    const knob = knobs.getOrCreateKnob(knobId, version);
+    if (!knob) {
+      return res.status(400).json({ error: 'knob_id required' });
+    }
+
+    res.json({
+      config: {
+        knob_id: knobId,
+        ...knob.config,
+        name: knob.name,  // Must be after spread to override stale config.name
+      },
+      config_sha: knob.config_sha,
+    });
+  });
+
+  router.put('/config/:knob_id', (req, res) => {
+    const knobId = req.params.knob_id;
+    const updates = req.body || {};
+    logger?.info('Config update', { knobId, updates, ip: req.ip });
+
+    const knob = knobs.updateKnobConfig(knobId, updates);
+    if (!knob) {
+      return res.status(400).json({ error: 'knob_id required' });
+    }
+
+    res.json({
+      config: {
+        knob_id: knobId,
+        ...knob.config,
+        name: knob.name,  // Must be after spread to override stale config.name
+      },
+      config_sha: knob.config_sha,
+    });
+  });
+
   router.get('/zones', (req, res) => {
-    recordEvent(metrics, 'zones', req, { knob: extractKnob(req) });
-    logger?.debug('Zones requested', { ip: req.ip });
+    const knob = extractKnob(req);
+    recordEvent(metrics, 'zones', req, { knob });
+    logger?.debug('Zones requested', { ip: req.ip, knob_id: knob?.id });
+
+    // Return all Roon zones (no filtering - knob handles Bluetooth locally)
     res.json(bridge.getZones());
   });
 
   router.get('/now_playing', (req, res) => {
     const zoneId = req.query.zone_id;
+    const knob = extractKnob(req);
+
     if (!zoneId) {
       return res.status(400).json({ error: 'zone_id required', zones: bridge.getZones() });
     }
+
+    // Capture status info from query params (battery_level, battery_charging)
+    if (knob?.id) {
+      const statusUpdates = { zone_id: zoneId };
+
+      // Parse battery info if provided
+      if (req.query.battery_level !== undefined) {
+        const level = parseInt(req.query.battery_level, 10);
+        if (!isNaN(level) && level >= 0 && level <= 100) {
+          statusUpdates.battery_level = level;
+        }
+      }
+      if (req.query.battery_charging !== undefined) {
+        statusUpdates.battery_charging = req.query.battery_charging === '1' || req.query.battery_charging === 'true';
+      }
+
+      knobs.updateKnobStatus(knob.id, statusUpdates);
+    }
+
     const data = bridge.getNowPlaying(zoneId);
     if (!data) {
-      recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, status: 'miss', knob: extractKnob(req) });
+      recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, status: 'miss', knob });
       logger?.warn('now_playing miss', { zoneId, ip: req.ip });
       return res.status(404).json({ error: 'zone not found', zones: bridge.getZones() });
     }
-    recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, knob: extractKnob(req) });
+    recordEvent(metrics, 'now_playing', req, { zone_id: zoneId, knob });
     logger?.debug('now_playing served', { zoneId, ip: req.ip });
+
     const image_url = `/now_playing/image?zone_id=${encodeURIComponent(zoneId)}`;
-    res.json({ ...data, image_url, zones: bridge.getZones() });
+
+    // Include config_sha for change detection
+    const config_sha = knob?.id ? knobs.getKnob(knob.id)?.config_sha : null;
+
+    res.json({ ...data, image_url, zones: bridge.getZones(), config_sha });
   });
 
   router.get('/now_playing/image', async (req, res) => {
@@ -180,6 +255,7 @@ function createRoutes({ bridge, metrics, logger }) {
     res.json({
       bridge: bridge.getStatus(),
       metrics: snapshot(metrics),
+      knobs: knobs.listKnobs(),
     });
   });
 
